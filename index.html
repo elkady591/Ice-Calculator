@@ -340,6 +340,7 @@ input.dt.bad{border-color:var(--red)}
   <div class="foot">NCM · ice = 165 kg water per m³ · one block = 18 kg</div>
 </div>
 
+<script src="seed.js"></script>
 <script>
 /* the two numbers the boxes never ask for */
 const WATER = 165, BLOCK = 18;
@@ -613,12 +614,24 @@ let T = loadTrucks();
 let newBlocks = 900;
 
 function loadTrucks(){
+  let list = [];
   try{
     const raw = JSON.parse(localStorage.getItem('ncm-ice-trucks') || '[]');
-    return (Array.isArray(raw) ? raw : []).filter(t => t && t.stage !== 'del').map(t => ({
+    list = (Array.isArray(raw) ? raw : []).filter(t => t && t.stage !== 'del').map(t => ({
       id:String(t.id), blocks:+t.blocks || 900, name:t.name || '', arr:t.arr || null,
       plant:t.plant ?? null, fin:t.fin ?? t.stage === 'done', dep:t.dep || null}));
-  }catch(e){ return []; }
+  }catch(e){}
+  /* seed.js carries the trucks copied from the old tracking sheet. A device
+     takes them in once (once per SEED_VER) and owns its list from then on. */
+  try{
+    if(typeof SEED !== 'undefined' && localStorage.getItem('ncm-ice-seed') !== SEED_VER){
+      const have = new Set(list.map(t => t.id));
+      list = list.concat(SEED.filter(t => !have.has(t.id)));
+      localStorage.setItem('ncm-ice-trucks', JSON.stringify(list));
+      localStorage.setItem('ncm-ice-seed', SEED_VER);
+    }
+  }catch(e){}
+  return list;
 }
 function saveTrucks(){
   try{
