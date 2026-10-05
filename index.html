@@ -329,8 +329,8 @@ input.dt.bad{border-color:var(--red)}
       <div class="sech"><span class="cap">Finished log</span><span class="tot" id="lognum"></span></div>
       <div class="tbox">
         <table>
-          <thead><tr><th>Finished</th><th>Driver</th><th>Blocks</th><th>Plant</th>
-            <th>Arrived</th><th>Waiting time</th></tr></thead>
+          <thead><tr><th>Arrived</th><th>Driver</th><th>Blocks</th><th>Plant</th>
+            <th>Finished</th><th>Waiting time</th></tr></thead>
           <tbody id="logbody"></tbody>
         </table>
       </div>
@@ -719,8 +719,8 @@ function drawTrucks(){
   /* every truck that has finished, the newest first */
   $('lognum').textContent = done.length + ' trucks';
   $('logbody').innerHTML = done.map(t =>
-    `<tr><td>${stamp(t.dep)}</td><td dir="auto">${esc(t.name)}</td><td>${t.blocks}</td>` +
-    `<td>${esc(S.fac[t.plant]?.name ?? '')}</td><td>${stamp(t.arr)}</td><td>${waited(t)}</td></tr>`
+    `<tr><td>${stamp(t.arr)}</td><td dir="auto">${esc(t.name)}</td><td>${t.blocks}</td>` +
+    `<td>${esc(S.fac[t.plant]?.name ?? '')}</td><td>${stamp(t.dep)}</td><td>${waited(t)}</td></tr>`
   ).join('') || '<tr><td colspan="6">—</td></tr>';
 
   /* the summary box: trucks of each size at every step */
