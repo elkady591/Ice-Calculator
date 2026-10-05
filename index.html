@@ -166,10 +166,6 @@ select.drv:focus{border-color:var(--accent-l)}
 .seg{display:flex;background:var(--track);border-radius:9px;padding:2px}
 .seg button{border:0;background:transparent;border-radius:7px;padding:6px 9px;cursor:pointer;
   font:400 12px "Segoe UI",system-ui,sans-serif;color:var(--muted)}
-.syncbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:12px 4px 0;
-  font-size:12px;color:var(--muted)}
-.syncbar #sstat{flex:1;min-width:160px}
-.syncbar input.nm{flex-basis:100%;font-size:12px;border-bottom-color:var(--track)}
 .seg button.on{background:var(--surface);color:var(--accent);font-weight:600}
 </style>
 </head>
@@ -322,10 +318,15 @@ select.drv:focus{border-color:var(--accent-l)}
         <div id="tright"></div>
       </div>
     </div>
-    <div class="syncbar">
-      <span id="sstat"></span>
-      <button class="sb q" id="sset">Sheet link</button>
-      <input class="nm" id="surl" placeholder="Paste the sheet link here" style="display:none">
+    <div class="card hours">
+      <div class="sech"><span class="cap">Finished log</span><span class="tot" id="lognum"></span></div>
+      <div class="tbox">
+        <table>
+          <thead><tr><th>Finished</th><th>Driver</th><th>Blocks</th><th>Plant</th>
+            <th>Arrived</th><th>Waiting time</th></tr></thead>
+          <tbody id="logbody"></tbody>
+        </table>
+      </div>
     </div>
   </section>
 
@@ -594,24 +595,12 @@ const DRIVERS = ['علي عبد المجيد','احمد ماهر','محمود س
 const HOUR = 3600e3;
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
-/* A truck is one row of the sheet's Data tab, and its step is read off the row
-   the same way the sheet's Summary counts it:
+/* A truck's step is read off what has been filled in for it, the way the old
+   tracking sheet counted it:
      blocks only -> loading at factory      + driver -> on the way
      + arrival   -> waiting                 + plant  -> on that plant
      finished ticked -> finished
-   Linked to the sheet, T is the sheet's own list and every change is sent to it;
-   `queue` holds the changes not sent yet, so nothing is lost with no signal. */
-let SYNC = '', queue = [], sheetDrivers = [], syncing = false;
-try{
-  SYNC = localStorage.getItem('ncm-ice-sync') || '';
-  queue = JSON.parse(localStorage.getItem('ncm-ice-queue') || '[]');
-  // opening the page once as  …/#sheet=<link>  links this device without typing
-  if(location.hash.startsWith('#sheet=')){
-    SYNC = decodeURIComponent(location.hash.slice(7));
-    localStorage.setItem('ncm-ice-sync', SYNC);
-    history.replaceState(null, '', location.pathname);
-  }
-}catch(e){}
+   The trucks are kept on this device. */
 
 let T = loadTrucks();
 let newBlocks = 900;
@@ -627,7 +616,6 @@ function loadTrucks(){
 function saveTrucks(){
   try{
     localStorage.setItem('ncm-ice-trucks', JSON.stringify(T));
-    localStorage.setItem('ncm-ice-queue', JSON.stringify(queue));
   }catch(e){}
 }
 const stageOf = t => t.fin ? 'done' : t.plant != null ? 'plant' : t.arr ? 'wait'
@@ -636,55 +624,14 @@ const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2
 
 /* every change to a truck goes through here: fn changes it, or returns 'del' */
 function change(t, fn){
-  const op = {k:newId(), ref:t.id, sig:{b:t.blocks, n:t.name, a:t.arr}};
-  if(fn(t) === 'del'){ T = T.filter(x => x !== t); op.del = true; }
-  else op.set = {blocks:t.blocks, name:t.name, arr:t.arr, plant:t.plant, fin:t.fin, dep:t.dep};
-  if(SYNC) queue.push(op);
-  saveTrucks(); drawTrucks(); sync();
-}
-
-function syncNote(text, bad){
-  $('sstat').textContent = text; $('sstat').className = bad ? 'bad' : '';
-}
-async function sync(){
-  if(!SYNC){ syncNote('Not linked to the sheet — trucks stay on this device'); return; }
-  if(syncing) return;
-  syncing = true;
-  let ok = false;
-  const batch = queue.slice();
-  try{
-    const res = batch.length
-      ? await fetch(SYNC, {method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
-                           body:JSON.stringify({ops:batch})})
-      : await fetch(SYNC);
-    const j = await res.json();
-    if(!j.ok) throw new Error('refused');
-    const before = JSON.stringify(T) + sheetDrivers.join();
-    const map = j.map || {};
-    queue = queue.slice(batch.length);
-    queue.forEach(o => { if(map[o.ref]) o.ref = map[o.ref]; });
-    // changes made while that request was out are still to be sent: keep the
-    // list as it stands here until they have gone too
-    if(queue.length) T.forEach(t => { if(map[t.id]) t.id = map[t.id]; });
-    else T = j.trucks || [];
-    if(Array.isArray(j.drivers)) sheetDrivers = j.drivers.map(String);
-    saveTrucks();
-    if(JSON.stringify(T) + sheetDrivers.join() !== before && !busyPicking()){
-      drawDrivers(); drawTrucks();
-    }
-    syncNote('Same as the sheet · ' +
-      new Date().toLocaleTimeString('en-GB', {hour:'2-digit', minute:'2-digit'}));
-    ok = true;
-  }catch(e){
-    syncNote(queue.length ? 'No connection — ' + queue.length + ' change(s) waiting to be sent'
-                          : 'No connection — showing the last list', true);
-  }
-  syncing = false;
-  if(ok && queue.length) setTimeout(sync, 300);
+  if(fn(t) === 'del') T = T.filter(x => x !== t);
+  saveTrucks(); drawTrucks();
 }
 /* a list that redraws under the finger closes the dropdown being used */
 const busyPicking = () => document.activeElement?.tagName === 'SELECT' &&
                           !!document.activeElement.closest('#tleft,#tright');
+const stamp = ms => !ms ? '' : new Date(ms).toLocaleString('en-GB',
+  {day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit', hour12:true}).replace(',', '');
 
 function waited(t){
   if(!t.arr) return '';
@@ -736,6 +683,13 @@ function drawTrucks(){
       `<span class="wt">${esc(S.fac[t.plant]?.name ?? '')} · ${waited(t)}</span></div>`).join('')
       || '<div class="none">—</div>') + `</div>`;
 
+  /* every truck that has finished, the newest first */
+  $('lognum').textContent = done.length + ' trucks';
+  $('logbody').innerHTML = done.map(t =>
+    `<tr><td>${stamp(t.dep)}</td><td dir="auto">${esc(t.name)}</td><td>${t.blocks}</td>` +
+    `<td>${esc(S.fac[t.plant]?.name ?? '')}</td><td>${stamp(t.arr)}</td><td>${waited(t)}</td></tr>`
+  ).join('') || '<tr><td colspan="6">—</td></tr>';
+
   /* the summary box: trucks of each size at every step */
   const line = (label, list, cls) => {
     const n = b => list.filter(t => t.blocks === b).length;
@@ -753,7 +707,7 @@ function drawTrucks(){
 function driverList(){
   let extra = [];
   try{ extra = JSON.parse(localStorage.getItem('ncm-ice-drivers') || '[]'); }catch(e){}
-  return [...new Set(DRIVERS.concat(sheetDrivers, Array.isArray(extra) ? extra : []))];
+  return [...new Set(DRIVERS.concat(Array.isArray(extra) ? extra : []))];
 }
 function drawDrivers(){
   const was = $('tdrv').value;
@@ -773,12 +727,10 @@ function addTruck(){
   }
   const t = {id:'n' + newId(), blocks:newBlocks, name, arr:null, plant:null, fin:false, dep:null};
   T.push(t);
-  if(SYNC) queue.push({k:newId(), ref:t.id, add:true,
-    set:{blocks:t.blocks, name, arr:null, plant:null, fin:false, dep:null}});
   $('tname').value = ''; $('tname').style.display = 'none';
   $('tdrv').value = '';
   drawDrivers();
-  saveTrucks(); drawTrucks(); sync();
+  saveTrucks(); drawTrucks();
 }
 function sendBlocks(){
   const n = T.filter(t => ['wait','plant'].includes(stageOf(t))).reduce((a,t)=> a + t.blocks, 0);
@@ -824,23 +776,7 @@ $('p2').addEventListener('change', e => {
 });
 setInterval(() => { if(!busyPicking()) drawTrucks(); }, 60000);
 
-/* the link to the sheet is typed once on each device and never leaves it */
-$('sset').addEventListener('click', () => {
-  const box = $('surl'), show = box.style.display === 'none';
-  box.style.display = show ? '' : 'none';
-  if(show){ box.value = SYNC; box.focus(); }
-});
-$('surl').addEventListener('change', () => {
-  SYNC = $('surl').value.trim();
-  queue = [];
-  try{ localStorage.setItem('ncm-ice-sync', SYNC); }catch(e){}
-  $('surl').style.display = 'none';
-  saveTrucks(); sync();
-});
-setInterval(() => { if(!document.hidden) sync(); }, 15000);
-document.addEventListener('visibilitychange', () => { if(!document.hidden) sync(); });
-
-buildFactories(); bind(); echo(); calcBlocks(); calcPour(); drawTrucks(); sync();
+buildFactories(); bind(); echo(); calcBlocks(); calcPour(); drawTrucks();
 </script>
 </body>
 </html>
