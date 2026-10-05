@@ -41,8 +41,8 @@ h1 img{height:34px;width:auto;display:block}
 /* layout ---------------------------------------------------------------- */
 .page{display:none}
 .page.on{display:block}
-.cols{display:grid;grid-template-columns:1fr;gap:12px;align-items:start}
-@media(min-width:860px){.cols{grid-template-columns:52fr 48fr}}
+.cols{display:grid;grid-template-columns:minmax(0,1fr);gap:12px;align-items:start}
+@media(min-width:860px){.cols{grid-template-columns:minmax(0,52fr) minmax(0,48fr)}}
 
 .card{background:var(--surface);border-radius:var(--r);padding:6px 18px}
 .card.pad{padding:14px 18px}
@@ -163,7 +163,18 @@ select.drv{flex:1;min-width:150px;border:1px solid var(--track);border-radius:9p
   background:var(--surface);color:var(--ink);padding:7px 8px;outline:none;
   font:400 15px "Segoe UI",system-ui,sans-serif}
 select.drv:focus{border-color:var(--accent-l)}
-.trow.ask{flex-wrap:wrap}
+/* on a narrow screen the buttons drop to a second line instead of pushing the
+   page wider than the phone */
+.trow{flex-wrap:wrap;row-gap:7px}
+.trow .who{flex:1 1 84px}
+.acts{display:flex;align-items:center;gap:8px;margin-left:auto}
+.trow.ask .acts{flex:1 1 100%}
+.call{flex:none;width:28px;height:28px;border-radius:50%;border:0;padding:0;cursor:pointer;
+  display:grid;place-items:center;background:var(--greenh);color:#1F7A50;text-decoration:none}
+.call.none{background:var(--track);color:var(--muted)}
+.call svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:2.2;
+  stroke-linecap:round;stroke-linejoin:round}
+.phbar{display:flex;justify-content:center;gap:8px;padding:10px 4px 0}
 .trow.ask .who{flex:1 1 60%}
 .trow.ask .wt{display:none}
 input.dt{flex:1 1 170px;width:auto;text-align:left;border:1px solid var(--track);border-radius:9px;
@@ -338,6 +349,11 @@ input.dt.bad{border-color:var(--red)}
   </section>
 
   <div class="foot" id="sstat"></div>
+  <div class="phbar">
+    <button class="sb q" id="phload">Load phone numbers</button>
+    <input type="file" id="phfile" accept=".json,.txt,.csv" hidden>
+  </div>
+  <div class="foot" id="phnote" style="padding-top:6px"></div>
   <div class="foot" style="padding-top:4px">NCM · ice = 165 kg water per m³ · one block = 18 kg</div>
 </div>
 
@@ -739,7 +755,7 @@ async function share(){
     });
     T = [...by.values()];
     saveTrucks();
-    if(JSON.stringify(T) !== before && !busyPicking() && !asking) drawTrucks();
+    if(JSON.stringify(T) !== before && !busyPicking() && !busyTyping()) drawTrucks();
     ok = true;
   }catch(e){}
   sharing = false;
@@ -767,6 +783,21 @@ const isLate = t => t.arr && !t.dep && Date.now() - t.arr >= LATE_H*HOUR;
 
 /* the truck whose arrival date and time is being typed, if any */
 let asking = null;
+
+/* The drivers' phone numbers are kept on this device only — they are never in
+   the page or in the shared list. A number is typed once on the driver's line,
+   or all of them are loaded from a file with the button at the foot. */
+let PH = {}, phoneFor = null;
+try{ PH = JSON.parse(localStorage.getItem('ncm-ice-phones') || '{}'); }catch(e){}
+const savePhones = () => { try{ localStorage.setItem('ncm-ice-phones', JSON.stringify(PH)); }catch(e){} };
+const PHONE = '<svg viewBox="0 0 24 24"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 ' +
+  '19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1' +
+  'L8.1 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z"/></svg>';
+/* green = tap to call; grey = no number yet, tap to type it */
+const callBtn = t => !t.name ? '' : PH[t.name]
+  ? `<a class="call" href="tel:${esc(PH[t.name])}" title="Call ${esc(PH[t.name])}">${PHONE}</a>`
+  : `<button class="call none" data-a="ph" data-id="${t.id}" title="Add the phone number">${PHONE}</button>`;
+const busyTyping = () => !!asking || !!phoneFor;
 const stampLocal = ms => { const d = new Date(ms - new Date(ms).getTimezoneOffset()*60000);
                            return d.toISOString().slice(0,16); };
 
@@ -789,12 +820,18 @@ function truckRow(t){
   else if(st === 'plant')
     act = asking === t.id ? ask('finok')
       : back + `<button class="sb" data-a="ask" data-id="${t.id}">Finished</button>`;
-  return `<div class="trow${asking === t.id ? ' ask' : ''}"><span class="pill${t.blocks < 900 ? ' sm' : ''}">` +
+  if(phoneFor === t.id)
+    act = `<input class="dt" type="tel" inputmode="tel" placeholder="Phone number">` +
+      `<button class="sb" data-a="phok" data-id="${t.id}">OK</button>` +
+      `<button class="sb q" data-a="askno" data-id="${t.id}">✕</button>`;
+  const open = asking === t.id || phoneFor === t.id;
+  return `<div class="trow${open ? ' ask' : ''}"><span class="pill${t.blocks < 900 ? ' sm' : ''}">` +
     `${t.blocks}</span>` +
-    (t.name ? `<span class="who" dir="auto">${esc(t.name)}</span>`
+    (t.name ? `<span class="who" dir="auto">${esc(t.name)}</span>${callBtn(t)}`
             : `<select class="drv" dir="auto" data-name="${t.id}"><option value="">Driver…</option>` +
               driverList().map(d => `<option>${esc(d)}</option>`).join('') + `</select>`) +
-    `<span class="wt${isLate(t) ? ' late' : ''}">${waited(t)}</span>${act}</div>`;
+    `<span class="wt${isLate(t) ? ' late' : ''}">${waited(t)}</span>` +
+    `<span class="acts">${act}</span></div>`;
 }
 function section(title, list){
   const blocks = list.reduce((a,t)=> a + t.blocks, 0);
@@ -815,7 +852,7 @@ function drawTrucks(){
     `<div class="card sec"><div class="sech"><span class="cap">Finished</span></div>` +
     (done.slice(0,8).map(t =>
       `<div class="trow"><span class="pill${t.blocks < 900 ? ' sm' : ''}">${t.blocks}</span>` +
-      `<span class="who" dir="auto">${esc(t.name)}</span>` +
+      `<span class="who" dir="auto">${esc(t.name)}</span>${callBtn(t)}` +
       `<span class="wt">${esc(S.fac[t.plant]?.name ?? '')} · ${waited(t)}</span>` +
       `<button class="sb q" data-a="undo" data-id="${t.id}" title="Not finished — put it back">‹</button></div>`).join('')
       || '<div class="none">—</div>') + `</div>`;
@@ -894,8 +931,17 @@ $('p2').addEventListener('click', e => {
   const b = e.target.closest('button[data-a]'); if(!b) return;
   const t = T.find(x => x.id === b.dataset.id); if(!t) return;
   const a = b.dataset.a;
-  if(a === 'ask' || a === 'askno'){
+  if(a === 'phok'){
+    const box = $('p2').querySelector('input.dt');
+    const number = box.value.replace(/[^\d+]/g, '');
+    if(number.length < 7){ box.classList.add('bad'); return; }
+    PH[t.name] = number; savePhones();
+    phoneFor = null; drawTrucks();
+    return;
+  }
+  if(a === 'ask' || a === 'askno' || a === 'ph'){
     asking = a === 'ask' ? t.id : null;
+    phoneFor = a === 'ph' ? t.id : null;
     drawTrucks();
     $('p2').querySelector('input.dt')?.focus();
     return;
@@ -932,7 +978,25 @@ $('p2').addEventListener('keydown', e => {
   if(e.key === 'Enter' && e.target.matches('input.dt'))
     $('p2').querySelector('button[data-a$="ok"]').click();
 });
-setInterval(() => { if(!busyPicking() && !asking) drawTrucks(); }, 60000);
+setInterval(() => { if(!busyPicking() && !busyTyping()) drawTrucks(); }, 60000);
+
+/* all the numbers at once, from a file kept on this device:
+   {"name": "number", …}  or one  name, number  per line */
+$('phload').addEventListener('click', () => $('phfile').click());
+$('phfile').addEventListener('change', async () => {
+  const file = $('phfile').files[0]; if(!file) return;
+  const text = await file.text();
+  let n = 0;
+  const take = (name, number) => {
+    name = String(name).trim(); number = String(number).replace(/[^\d+]/g, '');
+    if(name && number.length >= 7){ PH[name] = number; n++; }
+  };
+  try{ Object.entries(JSON.parse(text)).forEach(([k, v]) => take(k, v)); }
+  catch(e){ text.split(/\r?\n/).forEach(l => { const p = l.split(/[,;\t]/); if(p.length > 1) take(p[0], p[1]); }); }
+  savePhones(); drawTrucks();
+  $('phnote').textContent = n ? n + ' numbers saved on this device' : 'No numbers found in that file';
+  $('phfile').value = '';
+});
 setInterval(() => { if(!document.hidden) share(); }, 10000);
 document.addEventListener('visibilitychange', () => { if(!document.hidden) share(); });
 
