@@ -166,6 +166,10 @@ select.drv:focus{border-color:var(--accent-l)}
 .seg{display:flex;background:var(--track);border-radius:9px;padding:2px}
 .seg button{border:0;background:transparent;border-radius:7px;padding:6px 9px;cursor:pointer;
   font:400 12px "Segoe UI",system-ui,sans-serif;color:var(--muted)}
+.syncbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:12px 4px 0;
+  font-size:12px;color:var(--muted)}
+.syncbar #sstat{flex:1;min-width:160px}
+.syncbar input.nm{flex-basis:100%;font-size:12px;border-bottom-color:var(--track)}
 .seg button.on{background:var(--surface);color:var(--accent);font-weight:600}
 </style>
 </head>
@@ -317,6 +321,11 @@ select.drv:focus{border-color:var(--accent-l)}
           USE ON-SITE BLOCKS IN POUR CAPACITY</button>
         <div id="tright"></div>
       </div>
+    </div>
+    <div class="syncbar">
+      <span id="sstat"></span>
+      <button class="sb q" id="sset">Sheet link</button>
+      <input class="nm" id="surl" placeholder="Paste the sheet link here" style="display:none">
     </div>
   </section>
 
@@ -585,16 +594,97 @@ const DRIVERS = ['علي عبد المجيد','احمد ماهر','محمود س
 const HOUR = 3600e3;
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
+/* A truck is one row of the sheet's Data tab, and its step is read off the row
+   the same way the sheet's Summary counts it:
+     blocks only -> loading at factory      + driver -> on the way
+     + arrival   -> waiting                 + plant  -> on that plant
+     finished ticked -> finished
+   Linked to the sheet, T is the sheet's own list and every change is sent to it;
+   `queue` holds the changes not sent yet, so nothing is lost with no signal. */
+let SYNC = '', queue = [], sheetDrivers = [], syncing = false;
+try{
+  SYNC = localStorage.getItem('ncm-ice-sync') || '';
+  queue = JSON.parse(localStorage.getItem('ncm-ice-queue') || '[]');
+  // opening the page once as  …/#sheet=<link>  links this device without typing
+  if(location.hash.startsWith('#sheet=')){
+    SYNC = decodeURIComponent(location.hash.slice(7));
+    localStorage.setItem('ncm-ice-sync', SYNC);
+    history.replaceState(null, '', location.pathname);
+  }
+}catch(e){}
+
 let T = loadTrucks();
 let newBlocks = 900;
 
 function loadTrucks(){
   try{
     const raw = JSON.parse(localStorage.getItem('ncm-ice-trucks') || '[]');
-    return Array.isArray(raw) ? raw : [];
+    return (Array.isArray(raw) ? raw : []).filter(t => t && t.stage !== 'del').map(t => ({
+      id:String(t.id), blocks:+t.blocks || 900, name:t.name || '', arr:t.arr || null,
+      plant:t.plant ?? null, fin:t.fin ?? t.stage === 'done', dep:t.dep || null}));
   }catch(e){ return []; }
 }
-function saveTrucks(){ try{ localStorage.setItem('ncm-ice-trucks', JSON.stringify(T)); }catch(e){} }
+function saveTrucks(){
+  try{
+    localStorage.setItem('ncm-ice-trucks', JSON.stringify(T));
+    localStorage.setItem('ncm-ice-queue', JSON.stringify(queue));
+  }catch(e){}
+}
+const stageOf = t => t.fin ? 'done' : t.plant != null ? 'plant' : t.arr ? 'wait'
+                   : t.name ? 'road' : 'load';
+const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2,6);
+
+/* every change to a truck goes through here: fn changes it, or returns 'del' */
+function change(t, fn){
+  const op = {k:newId(), ref:t.id, sig:{b:t.blocks, n:t.name, a:t.arr}};
+  if(fn(t) === 'del'){ T = T.filter(x => x !== t); op.del = true; }
+  else op.set = {blocks:t.blocks, name:t.name, arr:t.arr, plant:t.plant, fin:t.fin, dep:t.dep};
+  if(SYNC) queue.push(op);
+  saveTrucks(); drawTrucks(); sync();
+}
+
+function syncNote(text, bad){
+  $('sstat').textContent = text; $('sstat').className = bad ? 'bad' : '';
+}
+async function sync(){
+  if(!SYNC){ syncNote('Not linked to the sheet — trucks stay on this device'); return; }
+  if(syncing) return;
+  syncing = true;
+  let ok = false;
+  const batch = queue.slice();
+  try{
+    const res = batch.length
+      ? await fetch(SYNC, {method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+                           body:JSON.stringify({ops:batch})})
+      : await fetch(SYNC);
+    const j = await res.json();
+    if(!j.ok) throw new Error('refused');
+    const before = JSON.stringify(T) + sheetDrivers.join();
+    const map = j.map || {};
+    queue = queue.slice(batch.length);
+    queue.forEach(o => { if(map[o.ref]) o.ref = map[o.ref]; });
+    // changes made while that request was out are still to be sent: keep the
+    // list as it stands here until they have gone too
+    if(queue.length) T.forEach(t => { if(map[t.id]) t.id = map[t.id]; });
+    else T = j.trucks || [];
+    if(Array.isArray(j.drivers)) sheetDrivers = j.drivers.map(String);
+    saveTrucks();
+    if(JSON.stringify(T) + sheetDrivers.join() !== before && !busyPicking()){
+      drawDrivers(); drawTrucks();
+    }
+    syncNote('Same as the sheet · ' +
+      new Date().toLocaleTimeString('en-GB', {hour:'2-digit', minute:'2-digit'}));
+    ok = true;
+  }catch(e){
+    syncNote(queue.length ? 'No connection — ' + queue.length + ' change(s) waiting to be sent'
+                          : 'No connection — showing the last list', true);
+  }
+  syncing = false;
+  if(ok && queue.length) setTimeout(sync, 300);
+}
+/* a list that redraws under the finger closes the dropdown being used */
+const busyPicking = () => document.activeElement?.tagName === 'SELECT' &&
+                          !!document.activeElement.closest('#tleft,#tright');
 
 function waited(t){
   if(!t.arr) return '';
@@ -605,20 +695,17 @@ function waited(t){
 const isLate = t => t.arr && !t.dep && Date.now() - t.arr >= LATE_H*HOUR;
 
 function truckRow(t){
+  const st = stageOf(t), back = `<button class="sb q" data-a="back" data-id="${t.id}">‹</button>`;
   let act = '';
-  if(t.stage === 'load')
-    act = `<button class="sb q" data-a="del" data-id="${t.id}">Remove</button>` +
-          `<button class="sb" data-a="road" data-id="${t.id}">Left factory</button>`;
-  else if(t.stage === 'road')
-    act = `<button class="sb q" data-a="back" data-id="${t.id}">‹</button>` +
-          `<button class="sb" data-a="wait" data-id="${t.id}">Arrived</button>`;
-  else if(t.stage === 'wait')
-    act = `<button class="sb q" data-a="back" data-id="${t.id}">‹</button>` +
-          `<select class="sb" data-id="${t.id}"><option value="">Send to…</option>` +
+  if(st === 'load')
+    act = `<button class="sb q" data-a="del" data-id="${t.id}">Remove</button>`;
+  else if(st === 'road')
+    act = back + `<button class="sb" data-a="wait" data-id="${t.id}">Arrived</button>`;
+  else if(st === 'wait')
+    act = back + `<select class="sb" data-id="${t.id}"><option value="">Send to…</option>` +
           S.fac.map((f,i)=> `<option value="${i}">${esc(f.name)}</option>`).join('') + `</select>`;
-  else if(t.stage === 'plant')
-    act = `<button class="sb q" data-a="back" data-id="${t.id}">‹</button>` +
-          `<button class="sb" data-a="done" data-id="${t.id}">Finished</button>`;
+  else if(st === 'plant')
+    act = back + `<button class="sb" data-a="done" data-id="${t.id}">Finished</button>`;
   return `<div class="trow"><span class="pill${t.blocks < 900 ? ' sm' : ''}">` +
     `${t.blocks}</span>` +
     (t.name ? `<span class="who" dir="auto">${esc(t.name)}</span>`
@@ -634,13 +721,14 @@ function section(title, list){
 }
 
 function drawTrucks(){
-  const at = s => T.filter(t => t.stage === s);
+  const at = s => T.filter(t => stageOf(t) === s);
+  const on = i => at('plant').filter(t => t.plant === i);
   $('tleft').innerHTML = section('Loading at factory', at('load')) +
     section('On the way to the plant', at('road')) + section('Waiting', at('wait'));
 
-  const done = at('done').sort((a,b)=> b.dep - a.dep);
+  const done = at('done').sort((a,b)=> (b.dep || 0) - (a.dep || 0));
   $('tright').innerHTML =
-    S.fac.map((f,i)=> section(f.name, T.filter(t => t.stage === 'plant' && t.plant === i))).join('') +
+    S.fac.map((f,i)=> section(f.name, on(i))).join('') +
     `<div class="card sec"><div class="sech"><span class="cap">Finished</span></div>` +
     (done.slice(0,8).map(t =>
       `<div class="trow"><span class="pill${t.blocks < 900 ? ' sm' : ''}">${t.blocks}</span>` +
@@ -648,7 +736,7 @@ function drawTrucks(){
       `<span class="wt">${esc(S.fac[t.plant]?.name ?? '')} · ${waited(t)}</span></div>`).join('')
       || '<div class="none">—</div>') + `</div>`;
 
-  /* the summary box: trucks of each size waiting and on every plant */
+  /* the summary box: trucks of each size at every step */
   const line = (label, list, cls) => {
     const n = b => list.filter(t => t.blocks === b).length;
     const blocks = list.reduce((a,t)=> a + t.blocks, 0);
@@ -657,7 +745,7 @@ function drawTrucks(){
   };
   $('kbody').innerHTML =
     line('Loading at factory', at('load'), 'r') + line('On the way', at('road'), 'r') +
-    S.fac.map((f,i)=> line(f.name, T.filter(t => t.stage === 'plant' && t.plant === i))).join('') +
+    S.fac.map((f,i)=> line(f.name, on(i))).join('') +
     line('Waiting', at('wait'), 'w');
 }
 
@@ -665,29 +753,35 @@ function drawTrucks(){
 function driverList(){
   let extra = [];
   try{ extra = JSON.parse(localStorage.getItem('ncm-ice-drivers') || '[]'); }catch(e){}
-  return [...new Set(DRIVERS.concat(Array.isArray(extra) ? extra : []))];
+  return [...new Set(DRIVERS.concat(sheetDrivers, Array.isArray(extra) ? extra : []))];
 }
 function drawDrivers(){
+  const was = $('tdrv').value;
   $('tdrv').innerHTML = '<option value="">Choose driver…</option>' +
     driverList().map(d => `<option>${esc(d)}</option>`).join('') +
     '<option value="+">+ New driver…</option>';
+  $('tdrv').value = was;
 }
+/* with a driver the truck is on the way; with none it is still loading */
 function addTruck(){
   const fresh = $('tdrv').value === '+';
   const name = (fresh ? $('tname').value : $('tdrv').value).trim();
-  // no driver picked is fine: the truck goes in as loading and gets its name later
   if(fresh && name && !driverList().includes(name)){
     let extra = [];
     try{ extra = JSON.parse(localStorage.getItem('ncm-ice-drivers') || '[]'); }catch(e){}
     try{ localStorage.setItem('ncm-ice-drivers', JSON.stringify(extra.concat(name))); }catch(e){}
   }
-  T.push({id:Date.now(), name, blocks:newBlocks, stage:'load', plant:null, arr:null, dep:null});
+  const t = {id:'n' + newId(), blocks:newBlocks, name, arr:null, plant:null, fin:false, dep:null};
+  T.push(t);
+  if(SYNC) queue.push({k:newId(), ref:t.id, add:true,
+    set:{blocks:t.blocks, name, arr:null, plant:null, fin:false, dep:null}});
   $('tname').value = ''; $('tname').style.display = 'none';
+  $('tdrv').value = '';
   drawDrivers();
-  saveTrucks(); drawTrucks();
+  saveTrucks(); drawTrucks(); sync();
 }
 function sendBlocks(){
-  const n = T.filter(t => t.stage === 'wait' || t.stage === 'plant').reduce((a,t)=> a + t.blocks, 0);
+  const n = T.filter(t => ['wait','plant'].includes(stageOf(t))).reduce((a,t)=> a + t.blocks, 0);
   S.blocks = n; $('blocks').value = n;
   save(); echo(); calcPour();
   document.querySelector('.tab[data-tab="1"]').click();
@@ -707,33 +801,46 @@ $('ttype').addEventListener('click', e => {
 });
 $('p2').addEventListener('click', e => {
   const b = e.target.closest('button[data-a]'); if(!b) return;
-  const t = T.find(x => String(x.id) === b.dataset.id); if(!t) return;
+  const t = T.find(x => x.id === b.dataset.id); if(!t) return;
   const a = b.dataset.a;
-  if(a === 'del') T = T.filter(x => x !== t);
-  else if(a === 'road') t.stage = 'road';
-  else if(a === 'wait'){ t.stage = 'wait'; t.arr = Date.now(); }
-  else if(a === 'done'){ t.stage = 'done'; t.dep = Date.now(); }
-  else if(a === 'back'){
-    if(t.stage === 'plant'){ t.stage = 'wait'; t.plant = null; }
-    else if(t.stage === 'wait'){ t.stage = 'road'; t.arr = null; }
-    else t.stage = 'load';
-  }
-  saveTrucks(); drawTrucks();
+  change(t, t => {
+    if(a === 'del') return 'del';
+    if(a === 'wait') t.arr = Date.now();
+    else if(a === 'done'){ t.fin = true; t.dep = Date.now(); }
+    else if(a === 'back'){
+      const st = stageOf(t);
+      if(st === 'plant') t.plant = null;
+      else if(st === 'wait') t.arr = null;
+      else t.name = '';
+    }
+  });
 });
 $('p2').addEventListener('change', e => {
-  if(e.target.tagName !== 'SELECT' || e.target.value === '') return;
-  if(e.target.dataset.name){
-    const u = T.find(x => String(x.id) === e.target.dataset.name);
-    if(u){ u.name = e.target.value; saveTrucks(); drawTrucks(); }
-    return;
-  }
-  const t = T.find(x => String(x.id) === e.target.dataset.id); if(!t) return;
-  t.stage = 'plant'; t.plant = +e.target.value;
-  saveTrucks(); drawTrucks();
+  const el = e.target;
+  if(el.tagName !== 'SELECT' || el.value === '') return;
+  const t = T.find(x => x.id === (el.dataset.name || el.dataset.id)); if(!t) return;
+  if(el.dataset.name) change(t, t => { t.name = el.value; });
+  else change(t, t => { t.plant = +el.value; });
 });
-setInterval(drawTrucks, 60000);
+setInterval(() => { if(!busyPicking()) drawTrucks(); }, 60000);
 
-buildFactories(); bind(); echo(); calcBlocks(); calcPour(); drawTrucks();
+/* the link to the sheet is typed once on each device and never leaves it */
+$('sset').addEventListener('click', () => {
+  const box = $('surl'), show = box.style.display === 'none';
+  box.style.display = show ? '' : 'none';
+  if(show){ box.value = SYNC; box.focus(); }
+});
+$('surl').addEventListener('change', () => {
+  SYNC = $('surl').value.trim();
+  queue = [];
+  try{ localStorage.setItem('ncm-ice-sync', SYNC); }catch(e){}
+  $('surl').style.display = 'none';
+  saveTrucks(); sync();
+});
+setInterval(() => { if(!document.hidden) sync(); }, 15000);
+document.addEventListener('visibilitychange', () => { if(!document.hidden) sync(); });
+
+buildFactories(); bind(); echo(); calcBlocks(); calcPour(); drawTrucks(); sync();
 </script>
 </body>
 </html>
