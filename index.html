@@ -163,6 +163,13 @@ select.drv{flex:1;min-width:150px;border:1px solid var(--track);border-radius:9p
   background:var(--surface);color:var(--ink);padding:7px 8px;outline:none;
   font:400 15px "Segoe UI",system-ui,sans-serif}
 select.drv:focus{border-color:var(--accent-l)}
+.trow.ask{flex-wrap:wrap}
+.trow.ask .who{flex:1 1 60%}
+.trow.ask .wt{display:none}
+input.dt{flex:1 1 170px;width:auto;text-align:left;border:1px solid var(--track);border-radius:9px;
+  padding:5px 7px;color:var(--ink);font:400 13px "Segoe UI",system-ui,sans-serif}
+input.dt:focus{border-color:var(--accent-l)}
+input.dt.bad{border-color:var(--red)}
 .seg{display:flex;background:var(--track);border-radius:9px;padding:2px}
 .seg button{border:0;background:transparent;border-radius:7px;padding:6px 9px;cursor:pointer;
   font:400 12px "Segoe UI",system-ui,sans-serif;color:var(--muted)}
@@ -641,19 +648,29 @@ function waited(t){
 }
 const isLate = t => t.arr && !t.dep && Date.now() - t.arr >= LATE_H*HOUR;
 
+/* the truck whose arrival date and time is being typed, if any */
+let asking = null;
+const stampLocal = ms => { const d = new Date(ms - new Date(ms).getTimezoneOffset()*60000);
+                           return d.toISOString().slice(0,16); };
+
 function truckRow(t){
   const st = stageOf(t), back = `<button class="sb q" data-a="back" data-id="${t.id}">‹</button>`;
   let act = '';
   if(st === 'load')
     act = `<button class="sb q" data-a="del" data-id="${t.id}">Remove</button>`;
   else if(st === 'road')
-    act = back + `<button class="sb" data-a="wait" data-id="${t.id}">Arrived</button>`;
+    // Arrived first asks when: the box opens on now, to be corrected if needed
+    act = asking === t.id
+      ? `<input class="dt" type="datetime-local" data-arr="${t.id}" value="${stampLocal(Date.now())}">` +
+        `<button class="sb" data-a="arrok" data-id="${t.id}">OK</button>` +
+        `<button class="sb q" data-a="arrno" data-id="${t.id}">✕</button>`
+      : back + `<button class="sb" data-a="wait" data-id="${t.id}">Arrived</button>`;
   else if(st === 'wait')
     act = back + `<select class="sb" data-id="${t.id}"><option value="">Send to…</option>` +
           S.fac.map((f,i)=> `<option value="${i}">${esc(f.name)}</option>`).join('') + `</select>`;
   else if(st === 'plant')
     act = back + `<button class="sb" data-a="done" data-id="${t.id}">Finished</button>`;
-  return `<div class="trow"><span class="pill${t.blocks < 900 ? ' sm' : ''}">` +
+  return `<div class="trow${asking === t.id ? ' ask' : ''}"><span class="pill${t.blocks < 900 ? ' sm' : ''}">` +
     `${t.blocks}</span>` +
     (t.name ? `<span class="who" dir="auto">${esc(t.name)}</span>`
             : `<select class="drv" dir="auto" data-name="${t.id}"><option value="">Driver…</option>` +
@@ -755,9 +772,22 @@ $('p2').addEventListener('click', e => {
   const b = e.target.closest('button[data-a]'); if(!b) return;
   const t = T.find(x => x.id === b.dataset.id); if(!t) return;
   const a = b.dataset.a;
+  if(a === 'wait' || a === 'arrno'){
+    asking = a === 'wait' ? t.id : null;
+    drawTrucks();
+    $('p2').querySelector('input.dt')?.focus();
+    return;
+  }
+  let when = 0;
+  if(a === 'arrok'){
+    const box = $('p2').querySelector('input.dt');
+    when = new Date(box.value).getTime();
+    if(!when){ box.classList.add('bad'); return; }
+    asking = null;
+  }
   change(t, t => {
     if(a === 'del') return 'del';
-    if(a === 'wait') t.arr = Date.now();
+    if(a === 'arrok') t.arr = when;
     else if(a === 'done'){ t.fin = true; t.dep = Date.now(); }
     else if(a === 'back'){
       const st = stageOf(t);
@@ -774,7 +804,11 @@ $('p2').addEventListener('change', e => {
   if(el.dataset.name) change(t, t => { t.name = el.value; });
   else change(t, t => { t.plant = +el.value; });
 });
-setInterval(() => { if(!busyPicking()) drawTrucks(); }, 60000);
+$('p2').addEventListener('keydown', e => {
+  if(e.key === 'Enter' && e.target.matches('input.dt'))
+    $('p2').querySelector('button[data-a="arrok"]').click();
+});
+setInterval(() => { if(!busyPicking() && !asking) drawTrucks(); }, 60000);
 
 buildFactories(); bind(); echo(); calcBlocks(); calcPour(); drawTrucks();
 </script>
