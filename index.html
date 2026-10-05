@@ -25,7 +25,9 @@ body{
   padding:0 0 env(safe-area-inset-bottom);
 }
 .wrap{max-width:940px;margin:0 auto;padding:14px 14px 20px}
-h1{font-size:20px;font-weight:600;color:var(--ink);margin:4px 2px 9px}
+h1{font-size:20px;font-weight:600;color:var(--ink);margin:4px 2px 9px;
+  display:flex;align-items:center;gap:9px}
+h1 img{height:34px;width:auto;display:block}
 
 /* tabs ------------------------------------------------------------------ */
 .tabs{display:flex;background:#DCE4EC;border-radius:12px;padding:3px;gap:3px;margin-bottom:12px}
@@ -169,7 +171,7 @@ select.drv:focus{border-color:var(--accent-l)}
 </head>
 <body>
 <div class="wrap">
-  <h1>Ice Calculator</h1>
+  <h1><img src="logo.png" alt="NCM">Ice Calculator</h1>
   <div class="tabs">
     <button class="tab on" data-tab="0">Ice Calculator</button>
     <button class="tab" data-tab="1">Pour Capacity</button>
