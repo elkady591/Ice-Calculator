@@ -337,7 +337,8 @@ input.dt.bad{border-color:var(--red)}
     </div>
   </section>
 
-  <div class="foot">NCM · ice = 165 kg water per m³ · one block = 18 kg</div>
+  <div class="foot" id="sstat"></div>
+  <div class="foot" style="padding-top:4px">NCM · ice = 165 kg water per m³ · one block = 18 kg</div>
 </div>
 
 <script src="seed.js"></script>
@@ -619,7 +620,8 @@ function loadTrucks(){
     const raw = JSON.parse(localStorage.getItem('ncm-ice-trucks') || '[]');
     list = (Array.isArray(raw) ? raw : []).filter(t => t && t.stage !== 'del').map(t => ({
       id:String(t.id), blocks:+t.blocks || 900, name:t.name || '', arr:t.arr || null,
-      plant:t.plant ?? null, fin:t.fin ?? t.stage === 'done', dep:t.dep || null}));
+      plant:t.plant ?? null, fin:t.fin ?? t.stage === 'done', dep:t.dep || null,
+      ts:t.ts || 0}));
   }catch(e){}
   /* seed.js carries the trucks copied from the old tracking sheet. A device
      takes them in once (once per SEED_VER) and owns its list from then on. */
@@ -636,6 +638,7 @@ function loadTrucks(){
 function saveTrucks(){
   try{
     localStorage.setItem('ncm-ice-trucks', JSON.stringify(T));
+    if(typeof outbox !== 'undefined') localStorage.setItem('ncm-ice-outbox', JSON.stringify(outbox));
   }catch(e){}
 }
 const stageOf = t => t.fin ? 'done' : t.plant != null ? 'plant' : t.arr ? 'wait'
@@ -644,8 +647,109 @@ const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2
 
 /* every change to a truck goes through here: fn changes it, or returns 'del' */
 function change(t, fn){
-  if(fn(t) === 'del') T = T.filter(x => x !== t);
-  saveTrucks(); drawTrucks();
+  const gone = fn(t) === 'del';
+  if(gone) T = T.filter(x => x !== t);
+  t.ts = Date.now();
+  outbox.push(gone ? {id:t.id, del:true, ts:t.ts} : {...t});
+  saveTrucks(); drawTrucks(); share();
+}
+
+/* ---- the same trucks on every device -----------------------------------
+   Each change is posted, as one line, to a Google Form; the form writes it in
+   a sheet anyone may read, and every device reads that sheet and keeps the
+   newest line for each truck. `outbox` holds the lines not seen back in the
+   sheet yet, so a change made with no signal is sent when it returns. */
+const SHARE = {
+  post: 'https://docs.google.com/forms/d/e/1FAIpQLSdi4iq6tx8i7Sf-FU2dE29x4crUze47oUNAepdK6a3UfxvtAg/formResponse',
+  field: 'entry.1922709410',
+  read: 'https://docs.google.com/spreadsheets/d/1DM5f4sysqXQUMS1aM3im9TD0VpjRWPQlXrHkLdJzFdw/gviz/tq?tqx=out:csv&gid=239809365&headers=1'
+};
+let outbox = [], sharing = false, readRows = 0;
+try{ outbox = JSON.parse(localStorage.getItem('ncm-ice-outbox') || '[]'); }catch(e){}
+
+/* once: trucks this device made or moved before sharing existed go out too */
+try{
+  if(!localStorage.getItem('ncm-ice-shared')){
+    const seed = new Map((typeof SEED === 'undefined' ? [] : SEED).map(t => [t.id, t]));
+    const same = (a, b) => b && ['blocks','name','arr','plant','fin','dep'].every(k => (a[k] ?? null) === (b[k] ?? null));
+    T.forEach(t => {
+      if(!t.ts && !same(t, seed.get(t.id))){ t.ts = Date.now(); outbox.push({...t}); }
+    });
+    localStorage.setItem('ncm-ice-shared', '1');
+    saveTrucks();
+  }
+}catch(e){}
+
+function csvRows(text){
+  const rows = []; let row = [], cell = '', quoted = false;
+  for(let i = 0; i < text.length; i++){
+    const c = text[i];
+    if(quoted){
+      if(c !== '"') cell += c;
+      else if(text[i+1] === '"'){ cell += '"'; i++; }
+      else quoted = false;
+    }
+    else if(c === '"') quoted = true;
+    else if(c === ','){ row.push(cell); cell = ''; }
+    else if(c === '\n'){ row.push(cell); rows.push(row); row = []; cell = ''; }
+    else if(c !== '\r') cell += c;
+  }
+  if(cell !== '' || row.length){ row.push(cell); rows.push(row); }
+  return rows;
+}
+function shareNote(text, bad){
+  $('sstat').textContent = text; $('sstat').className = bad ? 'bad' : '';
+}
+async function share(){
+  if(sharing) return;
+  sharing = true;
+  let ok = false;
+  try{
+    for(const e of outbox){
+      if(e.sent && Date.now() - e.sent < 40000) continue;      // give it time to show up
+      const {sent, ...line} = e;
+      await fetch(SHARE.post, {method:'POST', mode:'no-cors',
+                               body:new URLSearchParams({[SHARE.field]: JSON.stringify(line)})});
+      e.sent = Date.now();
+    }
+    // only the lines this page has not read yet
+    const url = SHARE.read + '&tq=' + encodeURIComponent('select B offset ' + readRows) + '&t=' + Date.now();
+    const res = await fetch(url, {credentials:'omit', cache:'no-store'});
+    if(!res.ok) throw new Error(res.status);
+    const lines = csvRows(await res.text()).slice(1);
+    readRows += lines.length;
+    const newest = new Map();
+    lines.forEach(r => {
+      let e = null;
+      try{ e = JSON.parse(r[0]); }catch(x){}
+      if(!e || !e.id || !e.ts) return;
+      outbox = outbox.filter(o => !(o.id === e.id && o.ts === e.ts));   // it arrived
+      const had = newest.get(e.id);
+      if(!had || e.ts > had.ts) newest.set(e.id, e);
+    });
+    const before = JSON.stringify(T);
+    const by = new Map(T.map(t => [t.id, t]));
+    newest.forEach(e => {
+      const mine = by.get(e.id);
+      if(mine && (mine.ts || 0) >= e.ts) return;                // what is here is newer
+      if(e.del) by.delete(e.id);
+      else by.set(e.id, {id:String(e.id), blocks:+e.blocks || 900, name:e.name || '',
+                         arr:e.arr || null, plant:e.plant ?? null, fin:!!e.fin,
+                         dep:e.dep || null, ts:e.ts});
+    });
+    T = [...by.values()];
+    saveTrucks();
+    if(JSON.stringify(T) !== before && !busyPicking() && !asking) drawTrucks();
+    ok = true;
+  }catch(e){}
+  sharing = false;
+  const wait = outbox.length;
+  if(ok) shareNote(wait ? 'Sending ' + wait + ' change(s)…'
+    : 'Shared between your devices · ' +
+      new Date().toLocaleTimeString('en-GB', {hour:'2-digit', minute:'2-digit'}));
+  else shareNote('No connection — ' + (wait ? wait + ' change(s) will be sent when it is back'
+                                            : 'showing the last list'), true);
+  if(ok && outbox.some(e => !e.sent)) setTimeout(share, 300);
 }
 /* a list that redraws under the finger closes the dropdown being used */
 const busyPicking = () => document.activeElement?.tagName === 'SELECT' &&
@@ -758,12 +862,14 @@ function addTruck(){
     try{ extra = JSON.parse(localStorage.getItem('ncm-ice-drivers') || '[]'); }catch(e){}
     try{ localStorage.setItem('ncm-ice-drivers', JSON.stringify(extra.concat(name))); }catch(e){}
   }
-  const t = {id:'n' + newId(), blocks:newBlocks, name, arr:null, plant:null, fin:false, dep:null};
+  const t = {id:'n' + newId(), blocks:newBlocks, name, arr:null, plant:null, fin:false, dep:null,
+             ts:Date.now()};
   T.push(t);
+  outbox.push({...t});
   $('tname').value = ''; $('tname').style.display = 'none';
   $('tdrv').value = '';
   drawDrivers();
-  saveTrucks(); drawTrucks();
+  saveTrucks(); drawTrucks(); share();
 }
 function sendBlocks(){
   const n = T.filter(t => ['wait','plant'].includes(stageOf(t))).reduce((a,t)=> a + t.blocks, 0);
@@ -827,8 +933,10 @@ $('p2').addEventListener('keydown', e => {
     $('p2').querySelector('button[data-a$="ok"]').click();
 });
 setInterval(() => { if(!busyPicking() && !asking) drawTrucks(); }, 60000);
+setInterval(() => { if(!document.hidden) share(); }, 10000);
+document.addEventListener('visibilitychange', () => { if(!document.hidden) share(); });
 
-buildFactories(); bind(); echo(); calcBlocks(); calcPour(); drawTrucks();
+buildFactories(); bind(); echo(); calcBlocks(); calcPour(); drawTrucks(); share();
 </script>
 </body>
 </html>
