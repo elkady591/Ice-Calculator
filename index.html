@@ -28,6 +28,11 @@ body{
 h1{font-size:20px;font-weight:600;color:var(--ink);margin:4px 2px 9px;
   display:flex;align-items:center;gap:9px}
 h1 img{height:34px;width:auto;display:block}
+.gear{margin-left:auto;width:38px;height:38px;border-radius:50%;border:0;padding:0;cursor:pointer;
+  display:grid;place-items:center;background:#DCE4EC;color:var(--body)}
+.gear.on{background:var(--surface);color:var(--accent)}
+.gear svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:2;
+  stroke-linecap:round;stroke-linejoin:round}
 
 /* tabs ------------------------------------------------------------------ */
 .tabs{display:flex;background:#DCE4EC;border-radius:12px;padding:3px;gap:3px;margin-bottom:12px}
@@ -174,7 +179,17 @@ select.drv:focus{border-color:var(--accent-l)}
 .call.none{background:var(--track);color:var(--muted)}
 .call svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:2.2;
   stroke-linecap:round;stroke-linejoin:round}
-.phbar{display:flex;justify-content:center;gap:8px;padding:10px 4px 0}
+.phbar{display:flex;flex-wrap:wrap;gap:8px;padding:6px 0 4px}
+.drow{display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--line)}
+.drow input{font:400 15px "Segoe UI",system-ui,sans-serif;color:var(--ink);text-align:left;
+  border:1px solid var(--track);border-radius:9px;padding:6px 8px;min-width:0}
+.drow input:focus{border-color:var(--accent-l);background:#F4F9FD}
+.drow input.bad{border-color:var(--red)}
+.drow .dn{flex:1 1 55%}
+.drow .dp{flex:1 1 45%;direction:ltr}
+.sb.warn{background:var(--red);color:#fff}
+.hint{font-size:12px;color:var(--muted);padding:2px 0 8px}
+.who[data-a]{cursor:pointer}
 .trow.ask .who{flex:1 1 60%}
 .trow.ask .wt{display:none}
 input.dt{flex:1 1 170px;width:auto;text-align:left;border:1px solid var(--track);border-radius:9px;
@@ -189,7 +204,7 @@ input.dt.bad{border-color:var(--red)}
 </head>
 <body>
 <div class="wrap">
-  <h1><img src="logo.png" alt="NCM">Ice Calculator</h1>
+  <h1><img src="logo.png" alt="NCM">Ice Calculator<button class="gear" id="gear" title="Settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button></h1>
   <div class="tabs">
     <button class="tab on" data-tab="0">Ice Calculator</button>
     <button class="tab" data-tab="1">Pour Capacity</button>
@@ -348,12 +363,47 @@ input.dt.bad{border-color:var(--red)}
     </div>
   </section>
 
+  <!-- ================= settings (the gear) ================= -->
+  <section class="page" id="p3">
+    <div class="cols">
+      <div>
+        <div class="card sec">
+          <div class="sech"><span class="cap">Drivers</span><span class="tot" id="drvnum"></span></div>
+          <div class="hint">Change a name or a number by typing over it. A grey box means no number yet.</div>
+          <div class="drow">
+            <input class="dn" id="dnew" dir="auto" placeholder="New driver name">
+            <input class="dp" id="dnewph" type="tel" inputmode="tel" placeholder="Phone number">
+            <button class="sb" id="dadd">Add</button>
+          </div>
+          <div id="drvlist"></div>
+        </div>
+      </div>
+      <div>
+        <div class="card sec">
+          <div class="sech"><span class="cap">Phone numbers</span></div>
+          <div class="hint">The numbers are kept on this device only. Save them to a file to carry
+            them to another device, and load that file there.</div>
+          <div class="phbar">
+            <button class="sb" id="phsave">Save numbers to a file</button>
+            <button class="sb q" id="phload">Load numbers from a file</button>
+            <input type="file" id="phfile" accept=".json,.txt,.csv" hidden>
+          </div>
+          <div class="hint" id="phnote"></div>
+        </div>
+        <div class="card sec">
+          <div class="sech"><span class="cap">Waiting</span></div>
+          <div class="row"><div class="lb">Show the waiting time in red after</div>
+            <input id="lateh" inputmode="decimal"><div class="un">hours</div></div>
+        </div>
+        <div class="card sec">
+          <div class="sech"><span class="cap">Plant names</span></div>
+          <div id="plantnames"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <div class="foot" id="sstat"></div>
-  <div class="phbar">
-    <button class="sb q" id="phload">Load phone numbers</button>
-    <input type="file" id="phfile" accept=".json,.txt,.csv" hidden>
-  </div>
-  <div class="foot" id="phnote" style="padding-top:6px"></div>
   <div class="foot" style="padding-top:4px">NCM · ice = 165 kg water per m³ · one block = 18 kg</div>
 </div>
 
@@ -612,7 +662,8 @@ document.querySelectorAll('.tab').forEach(b=>{
 });
 
 /* ---- tab 3 : ice trucks ------------------------------------------------- */
-const LATE_H = 48;
+let LATE_H = 48;
+try{ LATE_H = +localStorage.getItem('ncm-ice-late') || 48; }catch(e){}
 const DRIVERS = ['علي عبد المجيد','احمد ماهر','محمود سامي','محمد ابراهيم','السيد شنديدي',
   'محمد كريم','اسلام شحاته','سعد هاشم','حسني جابر','اسلام احمد','خميس محمد جعفر',
   'علي عبد الحميد هاشم','محمد ابو ليلة','محمد مسعد','احمد البحيري','محمد احمد',
@@ -735,14 +786,27 @@ async function share(){
     const lines = csvRows(await res.text()).slice(1);
     readRows += lines.length;
     const newest = new Map();
+    let drivers = false;
     lines.forEach(r => {
       let e = null;
       try{ e = JSON.parse(r[0]); }catch(x){}
       if(!e || !e.id || !e.ts) return;
       outbox = outbox.filter(o => !(o.id === e.id && o.ts === e.ts));   // it arrived
+      if(e.drv){                                                // a driver, not a truck
+        const mine = DRV[e.name];
+        if(e.name && (!mine || e.ts > mine.ts)){
+          DRV[e.name] = e.del ? {ts:e.ts, del:true} : {ts:e.ts};
+          drivers = true;
+        }
+        return;
+      }
       const had = newest.get(e.id);
       if(!had || e.ts > had.ts) newest.set(e.id, e);
     });
+    if(drivers){
+      saveDrivers(); drawDrivers();
+      if(!$('p3').contains(document.activeElement)) drawSettings();
+    }
     const before = JSON.stringify(T);
     const by = new Map(T.map(t => [t.id, t]));
     newest.forEach(e => {
@@ -797,7 +861,8 @@ const PHONE = '<svg viewBox="0 0 24 24"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8
 const callBtn = t => !t.name ? '' : PH[t.name]
   ? `<a class="call" href="tel:${esc(PH[t.name])}" title="Call ${esc(PH[t.name])}">${PHONE}</a>`
   : `<button class="call none" data-a="ph" data-id="${t.id}" title="Add the phone number">${PHONE}</button>`;
-const busyTyping = () => !!asking || !!phoneFor;
+let nameFor = null;                 // the truck whose driver is being changed
+const busyTyping = () => !!asking || !!phoneFor || !!nameFor;
 const stampLocal = ms => { const d = new Date(ms - new Date(ms).getTimezoneOffset()*60000);
                            return d.toISOString().slice(0,16); };
 
@@ -827,9 +892,12 @@ function truckRow(t){
   const open = asking === t.id || phoneFor === t.id;
   return `<div class="trow${open ? ' ask' : ''}"><span class="pill${t.blocks < 900 ? ' sm' : ''}">` +
     `${t.blocks}</span>` +
-    (t.name ? `<span class="who" dir="auto">${esc(t.name)}</span>${callBtn(t)}`
-            : `<select class="drv" dir="auto" data-name="${t.id}"><option value="">Driver…</option>` +
-              driverList().map(d => `<option>${esc(d)}</option>`).join('') + `</select>`) +
+    (t.name && nameFor !== t.id
+       ? `<span class="who" dir="auto" data-a="who" data-id="${t.id}" title="Change the driver">` +
+         `${esc(t.name)}</span>${callBtn(t)}`
+       : `<select class="drv" dir="auto" data-name="${t.id}"><option value="">Driver…</option>` +
+         [...new Set(driverList().concat(t.name || []))].map(d =>
+           `<option${d === t.name ? ' selected' : ''}>${esc(d)}</option>`).join('') + `</select>`) +
     `<span class="wt${isLate(t) ? ' late' : ''}">${waited(t)}</span>` +
     `<span class="acts">${act}</span></div>`;
 }
@@ -878,11 +946,27 @@ function drawTrucks(){
 }
 
 /* the registered drivers, plus any name typed in here before */
-function driverList(){
+/* The drivers: name -> {ts, del}. The names travel between the devices the
+   same way the trucks do (their numbers do not: those stay on the device). */
+let DRV = null;
+try{ DRV = JSON.parse(localStorage.getItem('ncm-ice-drv') || 'null'); }catch(e){}
+if(!DRV || typeof DRV !== 'object'){
+  DRV = {};
+  DRIVERS.forEach(n => { DRV[n] = {ts:0}; });
   let extra = [];
   try{ extra = JSON.parse(localStorage.getItem('ncm-ice-drivers') || '[]'); }catch(e){}
-  return [...new Set(DRIVERS.concat(Array.isArray(extra) ? extra : []))];
+  (Array.isArray(extra) ? extra : []).forEach(n => { if(n && !DRV[n]) setDriver(n); });
+  saveDrivers();
 }
+function saveDrivers(){ try{ localStorage.setItem('ncm-ice-drv', JSON.stringify(DRV)); }catch(e){} }
+function setDriver(name, gone){
+  const line = {id:'d:' + name, drv:1, name, ts:Date.now()};
+  if(gone) line.del = true;
+  DRV[name] = gone ? {ts:line.ts, del:true} : {ts:line.ts};
+  outbox.push(line);
+  saveDrivers(); saveTrucks();
+}
+function driverList(){ return Object.keys(DRV).filter(n => !DRV[n].del); }
 function drawDrivers(){
   const was = $('tdrv').value;
   $('tdrv').innerHTML = '<option value="">Choose driver…</option>' +
@@ -894,11 +978,7 @@ function drawDrivers(){
 function addTruck(){
   const fresh = $('tdrv').value === '+';
   const name = (fresh ? $('tname').value : $('tdrv').value).trim();
-  if(fresh && name && !driverList().includes(name)){
-    let extra = [];
-    try{ extra = JSON.parse(localStorage.getItem('ncm-ice-drivers') || '[]'); }catch(e){}
-    try{ localStorage.setItem('ncm-ice-drivers', JSON.stringify(extra.concat(name))); }catch(e){}
-  }
+  if(fresh && name && !driverList().includes(name)) setDriver(name);
   const t = {id:'n' + newId(), blocks:newBlocks, name, arr:null, plant:null, fin:false, dep:null,
              ts:Date.now()};
   T.push(t);
@@ -928,9 +1008,15 @@ $('ttype').addEventListener('click', e => {
   $('ttype').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
 });
 $('p2').addEventListener('click', e => {
-  const b = e.target.closest('button[data-a]'); if(!b) return;
+  const b = e.target.closest('[data-a]'); if(!b) return;
   const t = T.find(x => x.id === b.dataset.id); if(!t) return;
   const a = b.dataset.a;
+  if(a === 'who'){                    // wrong driver on this truck: pick the right one
+    nameFor = t.id; asking = phoneFor = null;
+    drawTrucks();
+    $('p2').querySelector(`select[data-name="${t.id}"]`)?.focus();
+    return;
+  }
   if(a === 'phok'){
     const box = $('p2').querySelector('input.dt');
     const number = box.value.replace(/[^\d+]/g, '');
@@ -971,7 +1057,7 @@ $('p2').addEventListener('change', e => {
   const el = e.target;
   if(el.tagName !== 'SELECT' || el.value === '') return;
   const t = T.find(x => x.id === (el.dataset.name || el.dataset.id)); if(!t) return;
-  if(el.dataset.name) change(t, t => { t.name = el.value; });
+  if(el.dataset.name){ nameFor = null; change(t, t => { t.name = el.value; }); }
   else change(t, t => { t.plant = +el.value; });
 });
 $('p2').addEventListener('keydown', e => {
@@ -982,6 +1068,106 @@ setInterval(() => { if(!busyPicking() && !busyTyping()) drawTrucks(); }, 60000);
 
 /* all the numbers at once, from a file kept on this device:
    {"name": "number", …}  or one  name, number  per line */
+/* leaving the driver box without choosing puts the name back as it was */
+$('p2').addEventListener('focusout', e => {
+  if(nameFor && e.target.matches('select[data-name]'))
+    setTimeout(() => { if(nameFor){ nameFor = null; drawTrucks(); } }, 150);
+});
+
+/* ---- settings (the gear) ------------------------------------------------- */
+function drawSettings(){
+  const list = driverList();
+  $('drvnum').textContent = list.length + ' drivers';
+  $('drvlist').innerHTML = list.map(n =>
+    `<div class="drow"><input class="dn" dir="auto" data-d="${esc(n)}" data-k="name" value="${esc(n)}">` +
+    `<input class="dp" type="tel" inputmode="tel" data-d="${esc(n)}" data-k="phone" ` +
+    `placeholder="No number" value="${esc(PH[n] || '')}">` +
+    `<button class="sb q" data-del="${esc(n)}" title="Remove this driver">✕</button></div>`).join('');
+  $('lateh').value = LATE_H;
+  $('plantnames').innerHTML = S.fac.map((f,i) =>
+    `<div class="drow"><span class="pct" style="width:56px">Plant ${i+1}</span>` +
+    `<input class="dn" data-plant="${i}" value="${esc(f.name)}"></div>`).join('');
+}
+const cleanNumber = v => String(v).replace(/[^\d+]/g, '');
+function setPhone(name, number){
+  if(number) PH[name] = number; else delete PH[name];
+  savePhones();
+}
+$('gear').addEventListener('click', () => {
+  document.querySelectorAll('.tab').forEach(x => x.classList.remove('on'));
+  document.querySelectorAll('.page').forEach(p => p.classList.toggle('on', p.id === 'p3'));
+  $('gear').classList.add('on');
+  drawSettings();
+  window.scrollTo(0,0);
+});
+document.querySelectorAll('.tab').forEach(b => b.addEventListener('click', () => $('gear').classList.remove('on')));
+
+$('dadd').addEventListener('click', () => {
+  const name = $('dnew').value.trim(), number = cleanNumber($('dnewph').value);
+  $('dnew').classList.toggle('bad', !name || driverList().includes(name));
+  $('dnewph').classList.toggle('bad', !!number && number.length < 7);
+  if(!name || driverList().includes(name) || (number && number.length < 7)) return;
+  setDriver(name);
+  if(number) setPhone(name, number);
+  $('dnew').value = $('dnewph').value = '';
+  drawDrivers(); drawSettings(); drawTrucks(); share();
+});
+['dnew','dnewph'].forEach(id => $(id).addEventListener('keydown', e => { if(e.key === 'Enter') $('dadd').click(); }));
+
+$('p3').addEventListener('change', e => {
+  const el = e.target, old = el.dataset.d;
+  if(el.dataset.k === 'phone'){
+    const number = cleanNumber(el.value);
+    if(number && number.length < 7){ el.classList.add('bad'); return; }
+    el.classList.remove('bad');
+    setPhone(old, number);
+    drawTrucks();
+  }
+  else if(el.dataset.k === 'name'){
+    const name = el.value.trim();
+    if(!name || name === old || driverList().includes(name)){ el.value = old; return; }
+    // the same driver under his right name: his number and his trucks follow
+    setDriver(old, true); setDriver(name);
+    if(PH[old]){ const number = PH[old]; setPhone(old, ''); setPhone(name, number); }
+    T.filter(t => t.name === old && !t.fin).forEach(t => {
+      t.name = name; t.ts = Date.now(); outbox.push({...t});
+    });
+    saveTrucks();
+    drawDrivers(); drawSettings(); drawTrucks(); share();
+  }
+  else if(el.id === 'lateh'){
+    LATE_H = num(el.value) > 0 ? num(el.value) : 48;
+    try{ localStorage.setItem('ncm-ice-late', LATE_H); }catch(x){}
+    el.value = LATE_H;
+    drawTrucks();
+  }
+});
+$('p3').addEventListener('input', e => {
+  const i = e.target.dataset.plant;
+  if(i === undefined) return;
+  S.fac[+i].name = e.target.value;
+  syncFactories(); save(); echo(); drawTrucks();
+});
+$('p3').addEventListener('click', e => {
+  const b = e.target.closest('button[data-del]'); if(!b) return;
+  if(!b.dataset.sure){                 // asked twice, so a slip does not remove a driver
+    b.dataset.sure = 1; b.textContent = 'Remove?'; b.classList.add('warn');
+    setTimeout(() => { if(b.isConnected){ delete b.dataset.sure; b.textContent = '✕'; b.classList.remove('warn'); } }, 4000);
+    return;
+  }
+  setDriver(b.dataset.del, true);
+  setPhone(b.dataset.del, '');
+  drawDrivers(); drawSettings(); drawTrucks(); share();
+});
+
+$('phsave').addEventListener('click', () => {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(PH, null, 1)], {type:'application/json'}));
+  a.download = 'drivers-phones.json';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  $('phnote').textContent = Object.keys(PH).length + ' numbers saved to drivers-phones.json';
+});
 $('phload').addEventListener('click', () => $('phfile').click());
 $('phfile').addEventListener('change', async () => {
   const file = $('phfile').files[0]; if(!file) return;
@@ -989,11 +1175,14 @@ $('phfile').addEventListener('change', async () => {
   let n = 0;
   const take = (name, number) => {
     name = String(name).trim(); number = String(number).replace(/[^\d+]/g, '');
-    if(name && number.length >= 7){ PH[name] = number; n++; }
+    if(name && number.length >= 7){
+      PH[name] = number; n++;
+      if(!driverList().includes(name)) setDriver(name);         // a driver this device did not have
+    }
   };
   try{ Object.entries(JSON.parse(text)).forEach(([k, v]) => take(k, v)); }
   catch(e){ text.split(/\r?\n/).forEach(l => { const p = l.split(/[,;\t]/); if(p.length > 1) take(p[0], p[1]); }); }
-  savePhones(); drawTrucks();
+  savePhones(); drawDrivers(); drawSettings(); drawTrucks(); share();
   $('phnote').textContent = n ? n + ' numbers saved on this device' : 'No numbers found in that file';
   $('phfile').value = '';
 });
