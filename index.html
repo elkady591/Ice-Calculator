@@ -351,16 +351,6 @@ input.dt.bad{border-color:var(--red)}
         <div id="tright"></div>
       </div>
     </div>
-    <div class="card hours">
-      <div class="sech"><span class="cap">Finished log</span><span class="tot" id="lognum"></span></div>
-      <div class="tbox">
-        <table>
-          <thead><tr><th>Arrived</th><th>Driver</th><th>Blocks</th><th>Plant</th>
-            <th>Finished</th><th>Waiting time</th></tr></thead>
-          <tbody id="logbody"></tbody>
-        </table>
-      </div>
-    </div>
   </section>
 
   <!-- ================= settings (the gear) ================= -->
@@ -399,6 +389,18 @@ input.dt.bad{border-color:var(--red)}
           <div class="sech"><span class="cap">Plant names</span></div>
           <div id="plantnames"></div>
         </div>
+      </div>
+    </div>
+    <!-- the trucks that have finished: the last few, then all of them -->
+    <div id="tdone" style="margin-top:12px"></div>
+    <div class="card hours">
+      <div class="sech"><span class="cap">Finished log</span><span class="tot" id="lognum"></span></div>
+      <div class="tbox">
+        <table>
+          <thead><tr><th>Arrived</th><th>Driver</th><th>Blocks</th><th>Plant</th>
+            <th>Finished</th><th>Waiting time</th></tr></thead>
+          <tbody id="logbody"></tbody>
+        </table>
       </div>
     </div>
   </section>
@@ -915,12 +917,16 @@ function drawTrucks(){
     section('On the way to the plant', at('road')) + section('Waiting', at('wait'));
 
   const done = at('done').sort((a,b)=> (b.dep || 0) - (a.dep || 0));
-  $('tright').innerHTML =
-    S.fac.map((f,i)=> section(f.name, on(i))).join('') +
-    `<div class="card sec"><div class="sech"><span class="cap">Finished</span></div>` +
+  $('tright').innerHTML = S.fac.map((f,i)=> section(f.name, on(i))).join('');
+
+  /* the finished trucks live behind the gear: the last eight, each with a way
+     back in case Finished was pressed by mistake, then the whole log */
+  $('tdone').innerHTML =
+    `<div class="card sec"><div class="sech"><span class="cap">Finished</span>` +
+    `<span class="tot">the last 8 · ‹ puts a truck back on its plant</span></div>` +
     (done.slice(0,8).map(t =>
       `<div class="trow"><span class="pill${t.blocks < 900 ? ' sm' : ''}">${t.blocks}</span>` +
-      `<span class="who" dir="auto">${esc(t.name)}</span>${callBtn(t)}` +
+      `<span class="who" dir="auto">${esc(t.name)}</span>${PH[t.name] ? callBtn(t) : ''}` +
       `<span class="wt">${esc(S.fac[t.plant]?.name ?? '')} · ${waited(t)}</span>` +
       `<button class="sb q" data-a="undo" data-id="${t.id}" title="Not finished — put it back">‹</button></div>`).join('')
       || '<div class="none">—</div>') + `</div>`;
@@ -1149,6 +1155,12 @@ $('p3').addEventListener('input', e => {
   syncFactories(); save(); echo(); drawTrucks();
 });
 $('p3').addEventListener('click', e => {
+  const undo = e.target.closest('button[data-a="undo"]');
+  if(undo){                            // Finished pressed by mistake
+    const t = T.find(x => x.id === undo.dataset.id);
+    if(t) change(t, t => { t.fin = false; t.dep = null; });
+    return;
+  }
   const b = e.target.closest('button[data-del]'); if(!b) return;
   if(!b.dataset.sure){                 // asked twice, so a slip does not remove a driver
     b.dataset.sure = 1; b.textContent = 'Remove?'; b.classList.add('warn');
