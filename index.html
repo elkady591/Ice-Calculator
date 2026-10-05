@@ -668,21 +668,23 @@ const stampLocal = ms => { const d = new Date(ms - new Date(ms).getTimezoneOffse
 
 function truckRow(t){
   const st = stageOf(t), back = `<button class="sb q" data-a="back" data-id="${t.id}">‹</button>`;
+  // Arrived and Finished first ask when: the box opens on now, to be corrected
+  const ask = ok =>
+    `<input class="dt" type="datetime-local" value="${stampLocal(Date.now())}">` +
+    `<button class="sb" data-a="${ok}" data-id="${t.id}">OK</button>` +
+    `<button class="sb q" data-a="askno" data-id="${t.id}">✕</button>`;
   let act = '';
   if(st === 'load')
     act = `<button class="sb q" data-a="del" data-id="${t.id}">Remove</button>`;
   else if(st === 'road')
-    // Arrived first asks when: the box opens on now, to be corrected if needed
-    act = asking === t.id
-      ? `<input class="dt" type="datetime-local" data-arr="${t.id}" value="${stampLocal(Date.now())}">` +
-        `<button class="sb" data-a="arrok" data-id="${t.id}">OK</button>` +
-        `<button class="sb q" data-a="arrno" data-id="${t.id}">✕</button>`
-      : back + `<button class="sb" data-a="wait" data-id="${t.id}">Arrived</button>`;
+    act = asking === t.id ? ask('arrok')
+      : back + `<button class="sb" data-a="ask" data-id="${t.id}">Arrived</button>`;
   else if(st === 'wait')
     act = back + `<select class="sb" data-id="${t.id}"><option value="">Send to…</option>` +
           S.fac.map((f,i)=> `<option value="${i}">${esc(f.name)}</option>`).join('') + `</select>`;
   else if(st === 'plant')
-    act = back + `<button class="sb" data-a="done" data-id="${t.id}">Finished</button>`;
+    act = asking === t.id ? ask('finok')
+      : back + `<button class="sb" data-a="ask" data-id="${t.id}">Finished</button>`;
   return `<div class="trow${asking === t.id ? ' ask' : ''}"><span class="pill${t.blocks < 900 ? ' sm' : ''}">` +
     `${t.blocks}</span>` +
     (t.name ? `<span class="who" dir="auto">${esc(t.name)}</span>`
@@ -786,24 +788,25 @@ $('p2').addEventListener('click', e => {
   const b = e.target.closest('button[data-a]'); if(!b) return;
   const t = T.find(x => x.id === b.dataset.id); if(!t) return;
   const a = b.dataset.a;
-  if(a === 'wait' || a === 'arrno'){
-    asking = a === 'wait' ? t.id : null;
+  if(a === 'ask' || a === 'askno'){
+    asking = a === 'ask' ? t.id : null;
     drawTrucks();
     $('p2').querySelector('input.dt')?.focus();
     return;
   }
   let when = 0;
-  if(a === 'arrok'){
+  if(a === 'arrok' || a === 'finok'){
     const box = $('p2').querySelector('input.dt');
     when = new Date(box.value).getTime();
-    if(!when){ box.classList.add('bad'); return; }
+    // a truck cannot finish before it arrived
+    if(!when || (a === 'finok' && t.arr && when < t.arr)){ box.classList.add('bad'); return; }
     asking = null;
   }
   change(t, t => {
     if(a === 'del') return 'del';
     if(a === 'arrok') t.arr = when;
     else if(a === 'undo'){ t.fin = false; t.dep = null; }   // Finished pressed by mistake
-    else if(a === 'done'){ t.fin = true; t.dep = Date.now(); }
+    else if(a === 'finok'){ t.fin = true; t.dep = when; }
     else if(a === 'back'){
       const st = stageOf(t);
       if(st === 'plant') t.plant = null;
@@ -821,7 +824,7 @@ $('p2').addEventListener('change', e => {
 });
 $('p2').addEventListener('keydown', e => {
   if(e.key === 'Enter' && e.target.matches('input.dt'))
-    $('p2').querySelector('button[data-a="arrok"]').click();
+    $('p2').querySelector('button[data-a$="ok"]').click();
 });
 setInterval(() => { if(!busyPicking() && !asking) drawTrucks(); }, 60000);
 
