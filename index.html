@@ -697,7 +697,8 @@ function drawTrucks(){
     (done.slice(0,8).map(t =>
       `<div class="trow"><span class="pill${t.blocks < 900 ? ' sm' : ''}">${t.blocks}</span>` +
       `<span class="who" dir="auto">${esc(t.name)}</span>` +
-      `<span class="wt">${esc(S.fac[t.plant]?.name ?? '')} · ${waited(t)}</span></div>`).join('')
+      `<span class="wt">${esc(S.fac[t.plant]?.name ?? '')} · ${waited(t)}</span>` +
+      `<button class="sb q" data-a="undo" data-id="${t.id}" title="Not finished — put it back">‹</button></div>`).join('')
       || '<div class="none">—</div>') + `</div>`;
 
   /* every truck that has finished, the newest first */
@@ -788,6 +789,7 @@ $('p2').addEventListener('click', e => {
   change(t, t => {
     if(a === 'del') return 'del';
     if(a === 'arrok') t.arr = when;
+    else if(a === 'undo'){ t.fin = false; t.dep = null; }   // Finished pressed by mistake
     else if(a === 'done'){ t.fin = true; t.dep = Date.now(); }
     else if(a === 'back'){
       const st = stageOf(t);
