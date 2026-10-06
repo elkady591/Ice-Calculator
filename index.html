@@ -371,8 +371,15 @@ input.dt.bad{border-color:var(--red)}
       <div>
         <div class="card sec">
           <div class="sech"><span class="cap">Phone numbers</span></div>
-          <div class="hint">The numbers are kept on this device only. Save them to a file to carry
-            them to another device, and load that file there.</div>
+          <div class="hint">With a password the numbers are shared between your devices, locked so
+            that only someone who knows the password can read them. Type the same password once
+            on each device.</div>
+          <div class="drow">
+            <input class="dn" id="pw" type="password" autocomplete="off" placeholder="Password for the numbers">
+            <button class="sb" id="pwok">Save</button>
+          </div>
+          <div class="hint" id="pwnote"></div>
+          <div class="hint">Or carry them by hand in a file:</div>
           <div class="phbar">
             <button class="sb" id="phsave">Save numbers to a file</button>
             <button class="sb q" id="phload">Load numbers from a file</button>
@@ -788,12 +795,17 @@ async function share(){
     const lines = csvRows(await res.text()).slice(1);
     readRows += lines.length;
     const newest = new Map();
-    let drivers = false;
+    let drivers = false, phones = false;
     lines.forEach(r => {
       let e = null;
       try{ e = JSON.parse(r[0]); }catch(x){}
       if(!e || !e.id || !e.ts) return;
       outbox = outbox.filter(o => !(o.id === e.id && o.ts === e.ts));   // it arrived
+      if(e.ph){                                                 // a locked phone number
+        const mine = PHX[e.name];
+        if(e.name && e.c && (!mine || e.ts > mine.ts)){ PHX[e.name] = {ts:e.ts, c:e.c}; phones = true; }
+        return;
+      }
       if(e.drv){                                                // a driver, not a truck
         const mine = DRV[e.name];
         if(e.name && (!mine || e.ts > mine.ts)){
@@ -805,9 +817,12 @@ async function share(){
       const had = newest.get(e.id);
       if(!had || e.ts > had.ts) newest.set(e.id, e);
     });
-    if(drivers){
-      saveDrivers(); drawDrivers();
+    if(phones){ savePhx(); await openPhones(); }
+    if(drivers) saveDrivers();
+    if(drivers || phones){
+      drawDrivers();
       if(!$('p3').contains(document.activeElement)) drawSettings();
+      if(phones && !busyPicking() && !busyTyping()) drawTrucks();
     }
     const before = JSON.stringify(T);
     const by = new Map(T.map(t => [t.id, t]));
@@ -865,6 +880,63 @@ const callBtn = t => !t.name ? '' : PH[t.name]
   : `<button class="call none" data-a="ph" data-id="${t.id}" title="Add the phone number">${PHONE}</button>`;
 let nameFor = null;                 // the truck whose driver is being changed
 const busyTyping = () => !!asking || !!phoneFor || !!nameFor;
+
+/* ---- phone numbers, shared but locked ------------------------------------
+   A number travels to the other devices the way a truck does, but as a line
+   locked with a password (AES-GCM, the key made from the password on the
+   device). The sheet that carries it shows only scrambled text; a device
+   that has been given the password opens it. The password is never stored
+   or sent: the device keeps the key made from it. */
+let KEY = null, PHX = {};                    // PHX: name -> {ts, c}, c = the locked number
+try{ PHX = JSON.parse(localStorage.getItem('ncm-ice-phx') || '{}'); }catch(e){}
+const savePhx = () => { try{ localStorage.setItem('ncm-ice-phx', JSON.stringify(PHX)); }catch(e){} };
+const b64 = buf => btoa(String.fromCharCode(...new Uint8Array(buf)));
+const unb64 = text => Uint8Array.from(atob(text), c => c.charCodeAt(0));
+async function keyFrom(password){
+  const enc = new TextEncoder();
+  const base = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey(
+    {name:'PBKDF2', salt:enc.encode('ncm-ice-phones-v1'), iterations:150000, hash:'SHA-256'},
+    base, {name:'AES-GCM', length:256}, true, ['encrypt','decrypt']);
+}
+async function lock(text){
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM', iv}, KEY, new TextEncoder().encode(text)));
+  const out = new Uint8Array(12 + ct.length);
+  out.set(iv); out.set(ct, 12);
+  return b64(out);
+}
+async function unlock(c, key){
+  const raw = unb64(c);
+  return new TextDecoder().decode(
+    await crypto.subtle.decrypt({name:'AES-GCM', iv:raw.slice(0,12)}, key || KEY, raw.slice(12)));
+}
+async function loadKey(){
+  try{
+    const k = localStorage.getItem('ncm-ice-key');
+    if(k) KEY = await crypto.subtle.importKey('raw', unb64(k), 'AES-GCM', true, ['encrypt','decrypt']);
+  }catch(e){}
+}
+/* open every locked number this device holds; returns how many would not open */
+async function openPhones(){
+  if(!KEY) return 0;
+  let shut = 0;
+  for(const [name, r] of Object.entries(PHX)){
+    try{
+      const number = await unlock(r.c);
+      if(number) PH[name] = number; else delete PH[name];
+    }catch(e){ shut++; }
+  }
+  savePhones();
+  return shut;
+}
+async function sharePhone(name){
+  if(!KEY) return;                            // no password here: the number stays on this device
+  const ts = Date.now(), c = await lock(PH[name] || '');
+  PHX[name] = {ts, c}; savePhx();
+  outbox.push({id:'p:' + name, ph:1, name, ts, c});
+  saveTrucks(); share();
+}
 const stampLocal = ms => { const d = new Date(ms - new Date(ms).getTimezoneOffset()*60000);
                            return d.toISOString().slice(0,16); };
 
@@ -1027,7 +1099,7 @@ $('p2').addEventListener('click', e => {
     const box = $('p2').querySelector('input.dt');
     const number = box.value.replace(/[^\d+]/g, '');
     if(number.length < 7){ box.classList.add('bad'); return; }
-    PH[t.name] = number; savePhones();
+    setPhone(t.name, number);
     phoneFor = null; drawTrucks();
     return;
   }
@@ -1090,6 +1162,7 @@ function drawSettings(){
     `placeholder="No number" value="${esc(PH[n] || '')}">` +
     `<button class="sb q" data-del="${esc(n)}" title="Remove this driver">✕</button></div>`).join('');
   $('lateh').value = LATE_H;
+  if(!$('pwnote').textContent) phoneState(0);
   $('plantnames').innerHTML = S.fac.map((f,i) =>
     `<div class="drow"><span class="pct" style="width:56px">Plant ${i+1}</span>` +
     `<input class="dn" data-plant="${i}" value="${esc(f.name)}"></div>`).join('');
@@ -1098,7 +1171,37 @@ const cleanNumber = v => String(v).replace(/[^\d+]/g, '');
 function setPhone(name, number){
   if(number) PH[name] = number; else delete PH[name];
   savePhones();
+  sharePhone(name);
 }
+function phoneNote(text, bad){
+  $('pwnote').textContent = text; $('pwnote').className = 'hint' + (bad ? ' bad' : '');
+}
+function phoneState(shut){
+  if(!KEY) phoneNote('No password on this device yet: the numbers stay here.');
+  else if(shut) phoneNote(shut + ' number(s) could not be opened. Type the password again.', true);
+  else phoneNote('Password saved on this device · ' + Object.keys(PHX).length + ' numbers shared.');
+}
+$('pwok').addEventListener('click', async () => {
+  const password = $('pw').value;
+  if(password.length < 4){ phoneNote('Use at least 4 characters.', true); return; }
+  if(!window.crypto || !crypto.subtle){ phoneNote('This browser cannot lock the numbers.', true); return; }
+  const key = await keyFrom(password);
+  // numbers already shared were locked with one password: it has to be that one
+  const have = Object.values(PHX).slice(0, 6);
+  if(have.length){
+    let opened = 0;
+    for(const r of have){ try{ await unlock(r.c, key); opened++; }catch(e){} }
+    if(!opened){ phoneNote('That is not the password the numbers were saved with.', true); return; }
+  }
+  KEY = key;
+  try{ localStorage.setItem('ncm-ice-key', b64(await crypto.subtle.exportKey('raw', key))); }catch(e){}
+  $('pw').value = '';
+  const shut = await openPhones();
+  // numbers only this device has go out to the others
+  for(const name of Object.keys(PH)) if(!PHX[name]) await sharePhone(name);
+  drawSettings(); drawTrucks(); phoneState(shut);
+});
+$('pw').addEventListener('keydown', e => { if(e.key === 'Enter') $('pwok').click(); });
 $('gear').addEventListener('click', () => {
   document.querySelectorAll('.tab').forEach(x => x.classList.remove('on'));
   document.querySelectorAll('.page').forEach(p => p.classList.toggle('on', p.id === 'p3'));
@@ -1189,6 +1292,7 @@ $('phfile').addEventListener('change', async () => {
     name = String(name).trim(); number = String(number).replace(/[^\d+]/g, '');
     if(name && number.length >= 7){
       PH[name] = number; n++;
+      sharePhone(name);
       if(!driverList().includes(name)) setDriver(name);         // a driver this device did not have
     }
   };
@@ -1201,7 +1305,8 @@ $('phfile').addEventListener('change', async () => {
 setInterval(() => { if(!document.hidden) share(); }, 10000);
 document.addEventListener('visibilitychange', () => { if(!document.hidden) share(); });
 
-buildFactories(); bind(); echo(); calcBlocks(); calcPour(); drawTrucks(); share();
+buildFactories(); bind(); echo(); calcBlocks(); calcPour(); drawTrucks();
+loadKey().then(openPhones).then(() => { drawTrucks(); share(); });
 </script>
 </body>
 </html>
