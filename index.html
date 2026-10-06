@@ -1183,7 +1183,7 @@ function phoneState(shut){
 }
 $('pwok').addEventListener('click', async () => {
   const password = $('pw').value;
-  if(password.length < 4){ phoneNote('Use at least 4 characters.', true); return; }
+  if(password.length < 3){ phoneNote('Use at least 3 characters.', true); return; }
   if(!window.crypto || !crypto.subtle){ phoneNote('This browser cannot lock the numbers.', true); return; }
   const key = await keyFrom(password);
   // numbers already shared were locked with one password: it has to be that one
