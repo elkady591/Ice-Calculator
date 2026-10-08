@@ -206,13 +206,13 @@ input.dt.bad{border-color:var(--red)}
 <div class="wrap">
   <h1><img src="logo.png" alt="NCM">Ice Calculator<button class="gear" id="gear" title="Settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button></h1>
   <div class="tabs">
-    <button class="tab on" data-tab="0">Ice Calculator</button>
+    <button class="tab" data-tab="0">Ice Calculator</button>
     <button class="tab" data-tab="1">Pour Capacity</button>
-    <button class="tab" data-tab="2">Ice Trucks</button>
+    <button class="tab on" data-tab="2">Ice Trucks</button>
   </div>
 
   <!-- ================= tab 1 : blocks to order ================= -->
-  <section class="page on" id="p0">
+  <section class="page" id="p0">
     <div class="cols">
       <div>
         <div class="card">
@@ -321,7 +321,7 @@ input.dt.bad{border-color:var(--red)}
   </section>
 
   <!-- ================= tab 3 : ice trucks ================= -->
-  <section class="page" id="p2">
+  <section class="page on" id="p2">
     <div class="kp" style="margin-bottom:12px">
       <table>
         <thead><tr><th></th><th>900</th><th>400</th><th>Blocks</th></tr></thead>
@@ -471,7 +471,7 @@ function buildFactories(){
         `<input class="nm" value="${f.name.replace(/"/g,'&quot;')}" data-i="${i}" data-k="name">` +
         `<span class="t" data-t="${i}"></span>` +
         `<span class="bar"><i data-b="${i}"></i></span>` +
-        `<input class="pc" inputmode="decimal" value="${f.pct}" data-i="${i}" data-k="pct">` +
+        `<input class="pc" inputmode="decimal" enterkeyhint="next" value="${f.pct}" data-i="${i}" data-k="pct">` +
         `<span class="pct">%</span>`;
       box.appendChild(row);
     });
@@ -534,7 +534,13 @@ function enterHop(ev){
   if(ev.key !== 'Enter') return;
   ev.preventDefault();
   const page = ev.target.closest('.page');
-  const boxes = [...page.querySelectorAll('input')];
+  // from a factory's percentage straight to the next factory's percentage
+  // (not its name), with the number selected so typing replaces it
+  let boxes = [...page.querySelectorAll('input')];
+  if(ev.target.classList.contains('pc')){
+    const rest = boxes.slice(boxes.indexOf(ev.target) + 1);
+    boxes = [ev.target, ...rest.filter(b => !b.classList.contains('nm'))];
+  }
   const i = boxes.indexOf(ev.target);
   if(i > -1 && i < boxes.length - 1){ boxes[i+1].focus(); boxes[i+1].select(); }
   else (page.id === 'p0' ? calcBlocks : calcPour)();
@@ -986,7 +992,8 @@ function drawTrucks(){
   const at = s => T.filter(t => stageOf(t) === s);
   const on = i => at('plant').filter(t => t.plant === i);
   $('tleft').innerHTML = section('Loading at factory', at('load')) +
-    section('On the way to the plant', at('road')) + section('Waiting', at('wait'));
+    section('On the way to the plant', at('road')) +
+    section('Waiting', at('wait').sort((a,b)=> (a.arr || 0) - (b.arr || 0)));   // first in, first up
 
   const done = at('done').sort((a,b)=> (b.dep || 0) - (a.dep || 0));
   $('tright').innerHTML = S.fac.map((f,i)=> section(f.name, on(i))).join('');
