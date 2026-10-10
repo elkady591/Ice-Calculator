@@ -152,6 +152,8 @@ tr.done td{background:var(--greenh);color:#1F7A50;font-weight:600}
   white-space:nowrap}
 .trow .wt{font-size:12px;color:var(--muted);white-space:nowrap}
 .trow .wt.late{color:var(--red);font-weight:600}
+.trow .wt{text-align:right;line-height:1.25}
+.trow .wt small{display:block;font-size:11px;font-weight:400;color:var(--muted)}
 .pill{font-size:11px;font-weight:700;border-radius:8px;padding:3px 7px;white-space:nowrap;
   background:#E3F0FA;color:var(--accent-d)}
 .pill.sm{background:var(--track);color:var(--body)}
@@ -171,7 +173,7 @@ select.drv:focus{border-color:var(--accent-l)}
 /* on a narrow screen the buttons drop to a second line instead of pushing the
    page wider than the phone */
 .trow{flex-wrap:wrap;row-gap:7px}
-.trow .who{flex:1 1 84px}
+.trow .who{flex:1 1 130px}
 .acts{display:flex;align-items:center;gap:8px;margin-left:auto}
 .trow.ask .acts{flex:1 1 100%}
 .call{flex:none;width:28px;height:28px;border-radius:50%;border:0;padding:0;cursor:pointer;
@@ -978,7 +980,8 @@ function truckRow(t){
        : `<select class="drv" dir="auto" data-name="${t.id}"><option value="">Driver…</option>` +
          [...new Set(driverList().concat(t.name || []))].map(d =>
            `<option${d === t.name ? ' selected' : ''}>${esc(d)}</option>`).join('') + `</select>`) +
-    `<span class="wt${isLate(t) ? ' late' : ''}">${waited(t)}</span>` +
+    `<span class="wt${isLate(t) ? ' late' : ''}">${waited(t)}` +
+    (t.arr ? `<small>${stamp(t.arr)}</small>` : '') + `</span>` +
     `<span class="acts">${act}</span></div>`;
 }
 function section(title, list){
