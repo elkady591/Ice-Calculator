@@ -786,7 +786,7 @@ function drawSuggest(force){
         const d = p.n - p.now;
         const chg = !hasNow || d === 0 ? '<span class="eq">—</span>'
           : `<span class="${d > 0 ? 'up' : 'dn'}">${d > 0 ? '▲ +' : '▼ −'}${Math.abs(d)}</span>`;
-        const end = p.end !== undefined ? `tank ${Math.round(p.end / S.tank * 100)}% at the end` : '';
+        const end = p.end !== undefined ? `Ice plant after pouring will be ${Math.round(p.end / S.tank * 100)}%` : '';
         const truck = !p.B ? '' : p.left > 0.5 ? `<span class="dn">${fmt(p.left)} blocks left in truck</span>` : 'truck used up';
         return `<div class="pl"><div class="line"><b class="nm">${esc(p.name)}</b>` +
           `<span><b>${p.n}</b> truck${p.n === 1 ? '' : 's'}/h ${chg}</span></div>` +
