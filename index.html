@@ -304,7 +304,7 @@ input.dt.bad{border-color:var(--red)}
             <span class="tot" id="run1"></span></div>
           <div id="fac1"></div>
           <div class="row" style="border-top:1px solid var(--line)">
-            <div class="lb">Ice blocks on site</div>
+            <div class="lb">Ice blocks on site<div class="hint" style="padding:0">the blocks typed at the plants below</div></div>
             <input id="blocks" inputmode="decimal">
             <div class="un" id="blockst"></div>
           </div>
@@ -383,8 +383,6 @@ input.dt.bad{border-color:var(--red)}
       </div>
 
       <div>
-        <button class="go" style="letter-spacing:1px" onclick="sendBlocks()">
-          USE ON-SITE BLOCKS IN POUR CAPACITY</button>
         <div id="tright"></div>
       </div>
     </div>
@@ -682,7 +680,19 @@ function buildPlants(){
           .forEach(o => { if(o !== inp) o.value = inp.value; }));
         echo(); save(); live();
       });
-      inp.addEventListener('keydown', enterHop);
+      // Enter / Next goes down the same column: the next plant's ice %, its
+      // m³/h or its blocks; after the last plant, to the top of the next column
+      inp.addEventListener('keydown', ev => {
+        if(ev.key !== 'Enter') return;
+        ev.preventDefault();
+        const cols = ['ice','rate','blk'], k = inp.dataset.k, i = +inp.dataset.m;
+        let next = $(host).querySelector(`input[data-m="${i + 1}"][data-k="${k}"]`);
+        if(!next){
+          const c = cols[cols.indexOf(k) + 1];
+          next = c && $(host).querySelector(`input[data-m="0"][data-k="${c}"]`);
+        }
+        if(next){ next.focus(); next.select(); } else inp.blur();
+      });
     });
   });
 }
@@ -774,6 +784,10 @@ function echo(){
     else if(document.activeElement !== el && el.value !== String(S[id.startsWith('rate') ? 'rate' : 'pct']))
       el.value = S[id.startsWith('rate') ? 'rate' : 'pct'];
   }));
+  S.blocks = S.fac.reduce((a,f) => a + (+f.blk || 0), 0);
+  const bx = $('blocks');
+  bx.readOnly = true; bx.style.color = 'var(--muted)';
+  if(bx.value !== fmt(S.blocks)) bx.value = fmt(S.blocks);
   $('blockst').textContent = fmt(blocksKg()/1000,1) + ' t';
 }
 
