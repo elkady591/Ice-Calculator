@@ -602,7 +602,9 @@ function wholeSplit(g, tm, pourTrucks){
 }
 function drawSuggest(force){
   const g = suggest();
-  const hours = h => !isFinite(h) ? 'no limit' : fmt(h, 1) + ' h';
+  // how long the ice lasts, and how many m³ go out in that time at rate r
+  const hours = (h, r) => !isFinite(h) ? `the whole ${fmt(S.qty)} m³ pour — the ice keeps up`
+    : `${fmt(h, 1)} h = ${fmt(h * r)} m³` + (h * r >= S.qty ? ` (the whole pour)` : '');
   const tm = truckM3(), custom = S.loadMode === 'custom';
   const pourTrucks = S.qty > 0 ? Math.ceil(S.qty / tm) : 0;
   const head =
@@ -624,8 +626,8 @@ function drawSuggest(force){
         (hasNow ? ` <span class="eq">(now ${p.now})</span>` : '') + `</span>` +
         `<span>${fmt(p.pt)} trucks of the pour</span></div></div>`;
     }).join('') +
-    `<div class="note">With this split the ice lasts <b>${hours(w.t)}</b> before the first factory runs out` +
-    (g.first != null ? ` (as typed now: ${hours(g.first)})` : '') +
+    `<div class="note">With this split the ice lasts <b>${hours(w.t, w.N * tm)}</b> before the first factory runs out` +
+    (g.first != null ? ` (as typed now: ${hours(g.first, g.R)})` : '') +
     `. Whole trucks only, so the rate is ${fmt(w.N * tm)} m³/h` +
     (Math.abs(w.N * tm - g.R) > 0.05 ? ` instead of ${fmt(g.R, 1)}` : '') +
     `. It counts each factory's tank and the blocks typed as still in its ice truck.</div>` +
@@ -864,9 +866,9 @@ function calcPour(){
   const base = parseClock(S.start);
   $('cap1').textContent = 'Your resources carry';
   if(net <= 0){
-    $('big1').textContent = 'no limit'; $('big1').className = 'ok';
-    $('unit1').textContent = ''; $('unit1').className = 'ok';
-    $('sub1').textContent = 'the running factories make as much as the pour burns';
+    $('big1').textContent = fmt(S.qty); $('big1').className = 'ok';
+    $('unit1').textContent = 'm³'; $('unit1').className = 'ok';
+    $('sub1').textContent = 'the whole pour · the running factories make as much ice as it uses';
   }else{
     const hours = stock / net, maxM3 = hours * RATE, enough = maxM3 >= S.qty;
     $('big1').textContent = fmt(maxM3); $('big1').className = enough ? 'ok' : '';
