@@ -628,8 +628,11 @@ function drawSuggest(force){
         (hasNow ? ` <span class="eq">(now ${p.now})</span>` : '') + `</span>` +
         `<span>${fmt(p.pt)} trucks of the pour</span></div></div>`;
     }).join('') +
-    `<div class="note">With this split the ice lasts <b>${hours(w.t, w.N * tm)}</b> before the first factory runs out` +
-    (g.first != null ? ` (as typed now: ${hours(g.first, g.R)})` : '') +
+    (isFinite(w.t)
+      ? `<div class="note">With this split the ice lasts <b>${hours(w.t, w.N * tm)}</b> before the first factory runs out`
+      : `<div class="note">With this split <b>no factory runs out</b>: the factories make the ice faster than the ${fmt(S.qty)} m³ pour uses it`) +
+    (g.first == null ? '' : isFinite(g.first) ? ` (as typed now: ${hours(g.first, g.R)})`
+      : (isFinite(w.t) ? ` (as typed now: no factory runs out)` : ` (as typed now too)`)) +
     `. Whole trucks only, so the rate is ${fmt(w.N * tm)} m³/h` +
     (Math.abs(w.N * tm - g.R) > 0.05 ? ` instead of ${fmt(g.R, 1)}` : '') +
     `. It counts each factory's tank and the blocks typed as still in its ice truck.</div>` +
