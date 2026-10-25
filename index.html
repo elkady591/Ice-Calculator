@@ -581,10 +581,20 @@ function plantsNow(){
   return S.fac.map((f,i) => {
     const A = Math.max(0, S.tank * f.pct/100 - S.tank * RESERVE), B = (+f.blk || 0) * BLOCK;
     return {i, name:f.name, k:(f.ice ?? S.pct)/100 * WATER, A, B, T:A + B,
-            P:f.on ? S.each : 0, r:+f.rate || 0};
+            tank0:S.tank * f.pct/100, P:f.on ? S.each : 0, r:+f.rate || 0};
   });
 }
-const lasts = p => { const d = p.r * p.k - p.P; return d > 0 ? p.T / d : Infinity; };
+function lasts(p){
+  const use = p.r * p.k, full = S.tank, floor = S.tank * RESERVE;
+  if(p.tank0 === undefined){ const d = use - p.P; return d > 0 ? p.T / d : Infinity; }
+  if(use <= 0) return Infinity;
+  const tb = p.B / use;                                    // hours until the ice truck is empty
+  const tank = Math.min(full, p.tank0 + p.P * tb);         // what the factory put in meanwhile
+  const d = use - p.P;
+  return d > 0 ? tb + Math.max(0, tank - floor) / d : Infinity;
+}
+/* blocks still in the ice truck after h hours at n trucks/h of tm m³ */
+const blocksLeft = (p, n, tm, h) => Math.max(0, p.B - n * tm * p.k * h) / BLOCK;
 function suggest(){
   const all = plantsNow(), R = mix().R;
   let set = all.filter(p => p.r > 0);
@@ -645,9 +655,9 @@ function wholeSplit(g, tm, pourTrucks){
      more than is left, they get less and the blocks left in them are shown. */
 function needSplit(g, tm){
   const H = g.R > 0 ? S.qty / g.R : 0;
-  const net = (p, n) => n * tm * p.k - p.P;                        // kg/h taken from its stock
-  const most = p => { let n = 0; while(n < 60 && net(p, n + 1) * H <= p.T + 1e-6) n++; return n; };
-  const toEmpty = p => { let n = 0; while(n < 60 && net(p, n) * H < p.B - 1e-6) n++; return n; };
+  const L = (p, n) => lasts({...p, r:n * tm});
+  const most = p => { let n = 0; while(n < 60 && L(p, n + 1) >= H - 1e-9) n++; return n; };
+  const toEmpty = p => p.B ? Math.ceil(p.B / (H * tm * p.k) - 1e-9) : 0;   // the truck feeds all it uses
   g.set.forEach(p => { p.now = Math.round(p.r / tm); p.max = most(p); });
   const N = g.set.reduce((a,p) => a + p.now, 0);
   g.set.forEach(p => p.n = p.B ? Math.min(toEmpty(p), p.max) : Math.min(p.now, p.max));
@@ -664,16 +674,17 @@ function needSplit(g, tm){
     if(!p) break;
     p.n++; rem--;
   }
-  g.set.forEach(p => p.left = p.B ? Math.max(0, p.B - Math.max(0, net(p, p.n)) * H) / BLOCK : 0);
-  const L = p => lasts({...p, r:p.n * tm});
+  g.set.forEach(p => p.left = p.B ? blocksLeft(p, p.n, tm, H) : 0);
   return {H, N, unplaced:rem, moves:g.set.filter(p => p.n !== p.now).length,
-          ok: rem === 0 && g.set.every(p => L(p) >= H - 1e-9), t:Math.min(...g.set.map(L))};
+          ok: rem === 0 && g.set.every(p => L(p, p.n) >= H - 1e-9), t:Math.min(...g.set.map(p => L(p, p.n)))};
 }
 /* why: the ice a plant has, what it uses and makes an hour, how long it lasts */
 function why(p, tm){
   const use = p.n * tm * p.k, last = lasts({...p, r:p.n * tm});
-  return `ice above 10% ${fmt(p.T / 1000, 1)} t · uses ${fmt(use / 1000, 2)} t/h` +
-    (p.P ? ` · makes ${fmt(p.P / 1000, 2)} t/h` : ' · its factory is off') +
+  const tb = p.B && use > 0 ? p.B / use : 0;
+  return (p.B ? `truck ${fmt(p.B / BLOCK)} blocks, empty after ${use > 0 ? fmt(tb, 1) + ' h' : 'never'} · ` : '') +
+    `tank above 10% ${fmt(p.A / 1000, 1)} t · uses ${fmt(use / 1000, 2)} t/h` +
+    (p.P ? ` · makes ${fmt(p.P / 1000, 2)} t/h${p.B ? ' (into the tank while the truck lasts)' : ''}` : ' · its factory is off') +
     ` · at 10% after ${isFinite(last) ? fmt(last, 1) + ' h' : 'never'}` +
     (!p.B ? '' : p.left > 0.5 ? ` · ${fmt(p.left)} blocks left in its ice truck`
                               : ' · its ice truck is used up by the end');
@@ -735,7 +746,7 @@ function drawSuggest(force){
           `<span>${fmt(p.pt)} trucks of the pour</span></div>` +
           `<div class="line why">${why(p, tm)}</div></div>`;
       }).join('') +
-      `<div class="note">${note} It counts each factory's tank, what it makes when its light is green, and the blocks typed as still in its ice truck.</div>` +
+      `<div class="note">${note} The ice truck feeds its plant first; meanwhile the factory fills the tank (up to full), and the tank is used after the truck is empty.</div>` +
       (changes ? `<button class="sb" data-usesug="1">Use this split</button>` : '');
     }
   }
