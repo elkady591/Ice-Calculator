@@ -198,6 +198,12 @@ select.drv:focus{border-color:var(--accent-l)}
 .sugbox .up{color:#1F7A50;font-weight:600}
 .sugbox .dn{color:var(--red);font-weight:600}
 .sugbox .eq{color:var(--muted)}
+.sugbox .why{font-size:11px;color:var(--muted);justify-content:flex-start}
+.mode{display:block;width:100%;text-align:left;border:1px solid var(--track);border-radius:10px;
+  background:var(--surface);padding:9px 11px;margin:6px 0;cursor:pointer;font:400 13px "Segoe UI",system-ui,sans-serif;color:var(--body)}
+.mode b{display:block;color:var(--ink);font-size:14px;margin-bottom:2px}
+.mode.on{border-color:var(--accent);background:#F1F7FC}
+.mode.on b{color:var(--accent)}
 .sugbox .seg button{white-space:nowrap}
 .sugbox .note{font-size:12px;color:var(--muted);padding:6px 0}
 .phbar{display:flex;flex-wrap:wrap;gap:8px;padding:6px 0 4px}
@@ -426,6 +432,15 @@ input.dt.bad{border-color:var(--red)}
           <div class="hint" id="phnote"></div>
         </div>
         <div class="card sec">
+          <div class="sech"><span class="cap">How the suggestion thinks</span></div>
+          <button class="mode" data-mode="need"><b>Only when needed</b>
+            Keeps your trucks as they are. Moves trucks only if a factory would run out of ice before
+            the pour ends, and then as few as possible.</button>
+          <button class="mode" data-mode="even"><b>Balance all factories</b>
+            Splits the trucks so every factory runs out of ice at the same moment, the longest the ice
+            can last. It may ask for changes even when there is ice enough.</button>
+        </div>
+        <div class="card sec">
           <div class="sech"><span class="cap">Truck mixers</span><span class="tot" id="fleetnum"></span></div>
           <div class="hint">How many trucks carry how much. "Full trucks" in the suggestion uses their average.
             A change here reaches every device.</div>
@@ -470,6 +485,7 @@ const DEF = {
   qty: 1750, rate: 54, pct: 70, tank: 16000,
   each: 700, blocks: 2300, start: '10:00', truck: 8, loadMode: 'full',
   fleet: [{n:7, m3:10}, {n:18, m3:12}],      // how many truck mixers carry how many m³
+  sugMode: 'need',                            // 'need' = move trucks only if ice runs short; 'even' = balance
   fac: [
     {name:'Liebherr 1', pct:35, on:true},
     {name:'Liebherr 2', pct:50, on:true},
@@ -485,7 +501,7 @@ function load(){
   try{
     const raw = JSON.parse(localStorage.getItem('ncm-ice') || '{}');
     const s = JSON.parse(JSON.stringify(DEF));
-    for(const k of ['qty','rate','pct','tank','each','blocks','start','truck','loadMode','fleet'])
+    for(const k of ['qty','rate','pct','tank','each','blocks','start','truck','loadMode','fleet','sugMode'])
       if(raw[k] !== undefined) s[k] = raw[k];
     if(Array.isArray(raw.fac))
       raw.fac.slice(0,5).forEach((f,i)=>{
@@ -616,6 +632,32 @@ function wholeSplit(g, tm, pourTrucks){
   const t = Math.min(...g.set.map(p => lasts({...p, r:p.n * tm})));
   return {N, t};
 }
+/* "Only when needed": keep the trucks as they are unless a factory would run
+   out before the pour ends (pour hours = pour m³ ÷ rate). If one would, move
+   one truck at a time from the plant that runs out first to the plant that
+   would still last longest with one more, until none runs out early. */
+function needSplit(g, tm){
+  const H = g.R > 0 ? S.qty / g.R : 0;
+  g.set.forEach(p => { p.now = Math.round(p.r / tm); p.n = p.now; });
+  const L = (p, n) => lasts({...p, r:(n ?? p.n) * tm});
+  const ok = () => g.set.every(p => L(p) >= H - 1e-9);
+  let moves = 0;
+  while(!ok() && moves < 80){
+    const short = g.set.filter(p => p.n > 0).sort((a,b) => L(a) - L(b))[0];
+    if(!short || L(short) >= H) break;
+    const to = g.set.filter(p => p !== short).map(p => ({p, l:L(p, p.n + 1)})).sort((a,b) => b.l - a.l)[0];
+    if(!to || Math.min(L(short, short.n - 1), to.l) <= L(short)) break;  // moving it would not help
+    short.n--; to.p.n++; moves++;
+  }
+  return {H, ok:ok(), moves, t:Math.min(...g.set.map(p => L(p)))};
+}
+/* why: the ice a plant has, what it uses and makes an hour, how long it lasts */
+function why(p, tm){
+  const use = p.n * tm * p.k, last = lasts({...p, r:p.n * tm});
+  return `ice ${fmt(p.T / 1000, 1)} t · uses ${fmt(use / 1000, 2)} t/h` +
+    (p.P ? ` · makes ${fmt(p.P / 1000, 2)} t/h` : ' · its factory is off') +
+    ` · lasts ${isFinite(last) ? fmt(last, 1) + ' h' : 'all the pour'}`;
+}
 function drawSuggest(force){
   const g = suggest();
   // how long the ice lasts, and how many m³ go out in that time at rate r
@@ -632,25 +674,45 @@ function drawSuggest(force){
   let body;
   if(!g) body = '<div class="note">Type the rate (or the plants\' m³/h) to get a suggestion.</div>';
   else {
-    const w = wholeSplit(g, tm, pourTrucks), hasNow = g.set.some(p => p.r > 0);
-    body = `<div class="sugt">Suggested split · ${w.N} trucks/h = ${fmt(w.N * tm)} m³/h</div>` + g.set.map(p => {
-      const d = p.n - p.now;
-      const chg = !hasNow ? '' : d === 0 ? '<span class="eq">no change</span>'
-        : `<span class="${d > 0 ? 'up' : 'dn'}">${d > 0 ? '▲ add' : '▼ take off'} ${Math.abs(d)} truck${Math.abs(d) > 1 ? 's' : ''}/h</span>`;
-      return `<div class="pl"><div class="line"><b class="nm">${esc(p.name)}</b>${chg}</div>` +
-        `<div class="line"><span><b>${p.n} truck${p.n === 1 ? '' : 's'}/h</b> = ${fmt(p.n * tm)} m³/h` +
-        (hasNow ? ` <span class="eq">(now ${p.now})</span>` : '') + `</span>` +
-        `<span>${fmt(p.pt)} trucks of the pour</span></div></div>`;
-    }).join('') +
-    (isFinite(w.t)
-      ? `<div class="note">With this split the ice lasts <b>${hours(w.t, w.N * tm)}</b> before the first factory runs out`
-      : `<div class="note">With this split <b>no factory runs out</b>: the factories make the ice faster than the ${fmt(S.qty)} m³ pour uses it`) +
-    (g.first == null ? '' : isFinite(g.first) ? ` (as typed now: ${hours(g.first, g.R)})`
-      : (isFinite(w.t) ? ` (as typed now: no factory runs out)` : ` (as typed now too)`)) +
-    `. Whole trucks only, so the rate is ${fmt(w.N * tm)} m³/h` +
-    (Math.abs(w.N * tm - g.R) > 0.05 ? ` instead of ${fmt(g.R, 1)}` : '') +
-    `. It counts each factory's tank and the blocks typed as still in its ice truck.</div>` +
-    `<button class="sb" data-usesug="1">Use this split</button>`;
+    const hasNow = g.set.some(p => p.r > 0), need = S.sugMode !== 'even';
+    let w, title, note;
+    if(need && !hasNow){
+      body = '<div class="note">Type each plant\'s m³/h above: the suggestion checks your split and only moves trucks if a factory would run out before the pour ends.</div>';
+    } else {
+      if(need){
+        w = needSplit(g, tm);
+        const pt = shareWhole(g.set.map(p => p.n), pourTrucks);
+        g.set.forEach((p, i) => p.pt = pt[i]);
+        title = w.moves ? 'Move these trucks' : 'Your split works';
+        note = !w.moves && w.ok
+          ? `<b>No change needed</b>: with your split every factory's ice lasts the whole pour (${fmt(w.H, 1)} h).`
+          : w.ok ? `With these moves no factory runs out before the pour ends (${fmt(w.H, 1)} h); the first runs out after ${hours(w.t, g.R)}.`
+          : `Even after moving trucks a factory runs out after <b>${hours(w.t, g.R)}</b>, before the pour ends (${fmt(w.H, 1)} h): order ice blocks.`;
+      } else {
+        w = wholeSplit(g, tm, pourTrucks);
+        title = `Balanced split · ${w.N} trucks/h = ${fmt(w.N * tm)} m³/h`;
+        note = (isFinite(w.t)
+          ? `With this split the ice lasts <b>${hours(w.t, w.N * tm)}</b> before the first factory runs out`
+          : `With this split <b>no factory runs out</b>: the factories make the ice faster than the ${fmt(S.qty)} m³ pour uses it`) +
+          (g.first == null ? '' : isFinite(g.first) ? ` (as typed now: ${hours(g.first, g.R)})`
+            : (isFinite(w.t) ? ` (as typed now: no factory runs out)` : ` (as typed now too)`)) +
+          `. Whole trucks only, so the rate is ${fmt(w.N * tm)} m³/h` +
+          (Math.abs(w.N * tm - g.R) > 0.05 ? ` instead of ${fmt(g.R, 1)}` : '') + '.';
+      }
+      const changes = g.set.some(p => p.n !== p.now);
+      body = `<div class="sugt">${title}</div>` + g.set.map(p => {
+        const d = p.n - p.now;
+        const chg = !hasNow ? '' : d === 0 ? '<span class="eq">no change</span>'
+          : `<span class="${d > 0 ? 'up' : 'dn'}">${d > 0 ? '▲ add' : '▼ take off'} ${Math.abs(d)} truck${Math.abs(d) > 1 ? 's' : ''}/h</span>`;
+        return `<div class="pl"><div class="line"><b class="nm">${esc(p.name)}</b>${chg}</div>` +
+          `<div class="line"><span><b>${p.n} truck${p.n === 1 ? '' : 's'}/h</b> = ${fmt(p.n * tm)} m³/h` +
+          (hasNow ? ` <span class="eq">(now ${p.now})</span>` : '') + `</span>` +
+          `<span>${fmt(p.pt)} trucks of the pour</span></div>` +
+          `<div class="line why">${why(p, tm)}</div></div>`;
+      }).join('') +
+      `<div class="note">${note} It counts each factory's tank, what it makes when its light is green, and the blocks typed as still in its ice truck.</div>` +
+      (changes ? `<button class="sb" data-usesug="1">Use this split</button>` : '');
+    }
   }
   ['sug0','sug1'].forEach(id => {
     const box = $(id);
@@ -676,7 +738,7 @@ function drawSuggest(force){
     if(!e.target.closest('[data-usesug]')) return;
     const g = suggest(); if(!g) return;
     const tm = truckM3();
-    wholeSplit(g, tm, S.qty > 0 ? Math.ceil(S.qty / tm) : 0);
+    if(S.sugMode !== 'even') needSplit(g, tm); else wholeSplit(g, tm, S.qty > 0 ? Math.ceil(S.qty / tm) : 0);
     S.fac.forEach(f => f.rate = 0);
     g.set.forEach(p => S.fac[p.i].rate = p.n * tm);
     buildPlants(); echo(); save(); live();
@@ -1451,6 +1513,12 @@ $('fleetadd').addEventListener('click', () => {
   (S.fleet = S.fleet || []).push({n:1, m3:12}); save(); drawFleet(); echo(); sendFleet();
   const box = $('fleetrows').querySelector('.drow:last-child input'); box.focus(); box.select();
 });
+function drawModes(){
+  document.querySelectorAll('.mode').forEach(b => b.classList.toggle('on', b.dataset.mode === (S.sugMode === 'even' ? 'even' : 'need')));
+}
+document.querySelectorAll('.mode').forEach(b => b.addEventListener('click', () => {
+  S.sugMode = b.dataset.mode; save(); drawModes(); echo();
+}));
 function drawSettings(){
   const list = driverList();
   $('drvnum').textContent = list.length + ' drivers';
@@ -1460,7 +1528,7 @@ function drawSettings(){
     `placeholder="No number" value="${esc(PH[n] || '')}">` +
     `<button class="sb q" data-del="${esc(n)}" title="Remove this driver">✕</button></div>`).join('');
   $('lateh').value = LATE_H;
-  drawFleet();
+  drawFleet(); drawModes();
   if(!$('pwnote').textContent) phoneState(0);
   $('plantnames').innerHTML = S.fac.map((f,i) =>
     `<div class="drow"><span class="pct" style="width:56px">Plant ${i+1}</span>` +
