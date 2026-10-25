@@ -437,8 +437,10 @@ input.dt.bad{border-color:var(--red)}
             Keeps 10% in every tank to the end of the pour, uses up the ice truck standing at a plant
             evenly over the pour, and otherwise keeps your trucks as they are.</button>
           <button class="mode" data-mode="even"><b>Balance all factories</b>
-            Splits the trucks so every tank reaches 10% at the same moment, the longest the ice can
-            last. It may ask for changes even when there is ice enough.</button>
+            First gives a plant with an ice truck the trucks that use it up by the end of the pour,
+            then splits the rest so every other tank ends the pour at about the same level.</button>
+          <div class="row" style="padding:8px 0 0"><div class="lb" style="font-size:13px">Most trucks per hour at one plant</div>
+            <input id="maxper" inputmode="numeric" style="width:60px"><div class="un">trucks/h</div></div>
         </div>
         <div class="card sec">
           <div class="sech"><span class="cap">Truck mixers</span><span class="tot" id="fleetnum"></span></div>
@@ -486,6 +488,7 @@ const DEF = {
   each: 700, blocks: 2300, start: '10:00', truck: 8, loadMode: 'full',
   fleet: [{n:7, m3:10}, {n:18, m3:12}],      // how many truck mixers carry how many m³
   sugMode: 'need',                            // 'need' = move trucks only if ice runs short; 'even' = balance
+  maxPer: 2,                                  // the most trucks per hour one plant can load (0 = no limit)
   fac: [
     {name:'Liebherr 1', pct:35, on:true},
     {name:'Liebherr 2', pct:50, on:true},
@@ -501,7 +504,7 @@ function load(){
   try{
     const raw = JSON.parse(localStorage.getItem('ncm-ice') || '{}');
     const s = JSON.parse(JSON.stringify(DEF));
-    for(const k of ['qty','rate','pct','tank','each','blocks','start','truck','loadMode','fleet','sugMode'])
+    for(const k of ['qty','rate','pct','tank','each','blocks','start','truck','loadMode','fleet','sugMode','maxPer'])
       if(raw[k] !== undefined) s[k] = raw[k];
     if(Array.isArray(raw.fac))
       raw.fac.slice(0,5).forEach((f,i)=>{
@@ -577,6 +580,7 @@ function mix(){
    same t, with the plants together pouring the whole rate R, gives
    r_i = (T_i / t + P_i) / k_i  and  1/t = (R - Σ P_i/k_i) / Σ (T_i/k_i). */
 const RESERVE = 0.10;      // every tank keeps 10% of a full tank to the end of the pour
+const capPer = () => S.maxPer > 0 ? S.maxPer : 60;   // most trucks/h at one plant
 function plantsNow(){
   return S.fac.map((f,i) => {
     const A = Math.max(0, S.tank * f.pct/100 - S.tank * RESERVE), B = (+f.blk || 0) * BLOCK;
@@ -592,6 +596,42 @@ function lasts(p){
   const tank = Math.min(full, p.tank0 + p.P * tb);         // what the factory put in meanwhile
   const d = use - p.P;
   return d > 0 ? tb + Math.max(0, tank - floor) / d : Infinity;
+}
+/* the tank when the pour ends after h hours at n trucks/h: the truck is drawn
+   first while the factory fills the tank, then the tank is drawn */
+function tankAtEnd(p, n, tm, h){
+  const use = n * tm * p.k, full = S.tank;
+  const tb = use > 0 ? Math.min(h, p.B / use) : h;          // hours fed by the ice truck
+  let tank = Math.min(full, p.tank0 + p.P * tb);
+  tank = Math.min(full, Math.max(0, tank - (use - p.P) * (h - tb)));
+  return tank;
+}
+/* Balance: the plants with an ice truck first get the trucks that use it up
+   by the end of the pour (as many as allowed); the trucks left go one at a time
+   to the plant whose tank would end the pour the fullest, so all the tanks end
+   it at about the same level. The blocks themselves are not part of that
+   balance. No tank under 10%, no plant above the most trucks per hour. */
+function evenSplit(g, tm, pourTrucks){
+  const N = Math.max(1, Math.round(g.R / tm)), H = S.qty / (N * tm);
+  const L = (p, n) => lasts({...p, r:n * tm});
+  const most = p => { let n = 0; while(n < capPer() && L(p, n + 1) >= H - 1e-9) n++; return n; };
+  g.set.forEach(p => {
+    p.now = Math.round(p.r / tm); p.max = most(p);
+    p.n = p.B ? Math.min(Math.ceil(p.B / (H * tm * p.k) - 1e-9), p.max) : 0;
+  });
+  let rem = N - g.set.reduce((a,p) => a + p.n, 0);
+  while(rem < 0){ const p = g.set.filter(p => p.n > 0).sort((a,b) => b.n - a.n)[0]; p.n--; rem++; }
+  while(rem > 0){
+    const p = g.set.filter(p => !p.B && p.n < p.max)
+      .sort((a,b) => tankAtEnd(b, b.n + 1, tm, H) - tankAtEnd(a, a.n + 1, tm, H))[0]
+      || g.set.filter(p => p.n < p.max).sort((a,b) => tankAtEnd(b, b.n + 1, tm, H) - tankAtEnd(a, a.n + 1, tm, H))[0];
+    if(!p) break;
+    p.n++; rem--;
+  }
+  const pt = shareWhole(g.set.map(p => p.n), pourTrucks);
+  g.set.forEach((p, i) => { p.pt = pt[i]; p.left = p.B ? blocksLeft(p, p.n, tm, H) : 0; p.end = tankAtEnd(p, p.n, tm, H); });
+  return {N, H, unplaced:rem, ok: rem === 0 && g.set.every(p => L(p, p.n) >= H - 1e-9),
+          t:Math.min(...g.set.map(p => L(p, p.n)))};
 }
 /* blocks still in the ice truck after h hours at n trucks/h of tm m³ */
 const blocksLeft = (p, n, tm, h) => Math.max(0, p.B - n * tm * p.k * h) / BLOCK;
@@ -656,7 +696,7 @@ function wholeSplit(g, tm, pourTrucks){
 function needSplit(g, tm){
   const H = g.R > 0 ? S.qty / g.R : 0;
   const L = (p, n) => lasts({...p, r:n * tm});
-  const most = p => { let n = 0; while(n < 60 && L(p, n + 1) >= H - 1e-9) n++; return n; };
+  const most = p => { let n = 0; while(n < capPer() && L(p, n + 1) >= H - 1e-9) n++; return n; };
   const toEmpty = p => p.B ? Math.ceil(p.B / (H * tm * p.k) - 1e-9) : 0;   // the truck feeds all it uses
   g.set.forEach(p => { p.now = Math.round(p.r / tm); p.max = most(p); });
   const N = g.set.reduce((a,p) => a + p.now, 0);
@@ -686,6 +726,7 @@ function why(p, tm){
     `tank above 10% ${fmt(p.A / 1000, 1)} t · uses ${fmt(use / 1000, 2)} t/h` +
     (p.P ? ` · makes ${fmt(p.P / 1000, 2)} t/h${p.B ? ' (into the tank while the truck lasts)' : ''}` : ' · its factory is off') +
     ` · at 10% after ${isFinite(last) ? fmt(last, 1) + ' h' : 'never'}` +
+    (p.end !== undefined ? ` · tank at the end ${Math.round(p.end / S.tank * 100)}%` : '') +
     (!p.B ? '' : p.left > 0.5 ? ` · ${fmt(p.left)} blocks left in its ice truck`
                               : ' · its ice truck is used up by the end');
 }
@@ -720,19 +761,22 @@ function drawSuggest(force){
           ? `<b>Not enough ice</b>: ${w.unplaced > 0 ? w.unplaced + ' truck' + (w.unplaced > 1 ? 's' : '') + '/h cannot be placed and ' : ''}` +
             `a tank goes under 10% after ${hours(w.t, g.R)}, before the pour ends (${fmt(w.H, 1)} h): order ice blocks.`
           : !w.moves ? `<b>No change needed</b>: every tank stays above 10% for the whole pour (${fmt(w.H, 1)} h)` +
-            (g.set.some(p => p.B) ? ' and the ice trucks are used up by its end.' : '.')
+            (g.set.some(p => p.B) && !left.length ? ' and the ice trucks are used up by its end.' : '.')
           : `With these moves every tank stays above 10% for the whole pour (${fmt(w.H, 1)} h)` +
-            (g.set.some(p => p.B) ? ' and the ice trucks are used up evenly over it, not in the first hours.' : '.')) +
+            (g.set.some(p => p.B) && !left.length ? ' and the ice trucks are used up evenly over it, not in the first hours.' : '.')) +
           (left.length ? ` <b>Left in the ice trucks at the end:</b> ${left.join(', ')} (there are not trucks enough to use them up without taking the other plants' trucks).` : '');
       } else {
-        w = wholeSplit(g, tm, pourTrucks);
+        w = evenSplit(g, tm, pourTrucks);
         title = `Balanced split · ${w.N} trucks/h = ${fmt(w.N * tm)} m³/h`;
-        note = (isFinite(w.t)
-          ? `With this split the ice lasts <b>${hours(w.t, w.N * tm)}</b> before the first factory runs out`
-          : `With this split <b>no factory runs out</b>: the factories make the ice faster than the ${fmt(S.qty)} m³ pour uses it`) +
-          (g.first == null ? '' : isFinite(g.first) ? ` (as typed now: ${hours(g.first, g.R)})`
-            : (isFinite(w.t) ? ` (as typed now: no factory runs out)` : ` (as typed now too)`)) +
-          `. Whole trucks only, so the rate is ${fmt(w.N * tm)} m³/h` +
+        const left = g.set.filter(p => p.left > 0.5).map(p => `${fmt(p.left)} blocks on ${esc(p.name)}`);
+        const ends = g.set.filter(p => !p.B).map(p => Math.round(p.end / S.tank * 100));
+        note = (!w.ok
+          ? `<b>Not enough ice or room</b>: ${w.unplaced > 0 ? w.unplaced + ' truck' + (w.unplaced > 1 ? 's' : '') + '/h cannot be placed (each plant takes at most ' + capPer() + ') and ' : ''}` +
+            `a tank goes under 10% after ${hours(w.t, w.N * tm)}, before the pour ends (${fmt(w.H, 1)} h).`
+          : `The ice trucks are used up first; the other tanks end the pour (${fmt(w.H, 1)} h) at about the same level` +
+            (ends.length ? ` (${Math.min(...ends)}–${Math.max(...ends)}% of a full tank)` : '') + '.') +
+          (left.length ? ` <b>Left in the ice trucks at the end:</b> ${left.join(', ')} (at most ${capPer()} trucks/h per plant).` : '') +
+          ` Whole trucks only, so the rate is ${fmt(w.N * tm)} m³/h` +
           (Math.abs(w.N * tm - g.R) > 0.05 ? ` instead of ${fmt(g.R, 1)}` : '') + '.';
       }
       const changes = g.set.some(p => p.n !== p.now);
@@ -774,7 +818,7 @@ function drawSuggest(force){
     if(!e.target.closest('[data-usesug]')) return;
     const g = suggest(); if(!g) return;
     const tm = truckM3();
-    if(S.sugMode !== 'even') needSplit(g, tm); else wholeSplit(g, tm, S.qty > 0 ? Math.ceil(S.qty / tm) : 0);
+    if(S.sugMode !== 'even') needSplit(g, tm); else evenSplit(g, tm, S.qty > 0 ? Math.ceil(S.qty / tm) : 0);
     S.fac.forEach(f => f.rate = 0);
     g.set.forEach(p => S.fac[p.i].rate = p.n * tm);
     buildPlants(); echo(); save(); live();
@@ -1549,7 +1593,9 @@ $('fleetadd').addEventListener('click', () => {
   (S.fleet = S.fleet || []).push({n:1, m3:12}); save(); drawFleet(); echo(); sendFleet();
   const box = $('fleetrows').querySelector('.drow:last-child input'); box.focus(); box.select();
 });
+$('maxper').addEventListener('input', e => { S.maxPer = num(e.target.value); save(); echo(); });
 function drawModes(){
+  if(document.activeElement !== $('maxper')) $('maxper').value = S.maxPer || '';
   document.querySelectorAll('.mode').forEach(b => b.classList.toggle('on', b.dataset.mode === (S.sugMode === 'even' ? 'even' : 'need')));
 }
 document.querySelectorAll('.mode').forEach(b => b.addEventListener('click', () => {
