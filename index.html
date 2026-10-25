@@ -208,6 +208,7 @@ select.drv:focus{border-color:var(--accent-l)}
 .drow input.bad{border-color:var(--red)}
 .drow .dn{flex:1 1 55%}
 .drow .dp{flex:1 1 45%;direction:ltr}
+#fleetrows .drow .dp{flex:0 0 64px;text-align:center}
 .sb.warn{background:var(--red);color:#fff}
 .hint{font-size:12px;color:var(--muted);padding:2px 0 8px}
 .who[data-a]{cursor:pointer}
@@ -425,6 +426,12 @@ input.dt.bad{border-color:var(--red)}
           <div class="hint" id="phnote"></div>
         </div>
         <div class="card sec">
+          <div class="sech"><span class="cap">Truck mixers</span><span class="tot" id="fleetnum"></span></div>
+          <div class="hint">How many trucks carry how much. "Full trucks" in the suggestion uses their average.</div>
+          <div id="fleetrows"></div>
+          <button class="sb q" id="fleetadd" style="margin:6px 0 4px">+ Add a load</button>
+        </div>
+        <div class="card sec">
           <div class="sech"><span class="cap">Waiting</span></div>
           <div class="row"><div class="lb">Show the waiting time in red after</div>
             <input id="lateh" inputmode="decimal"><div class="un">hours</div></div>
@@ -461,6 +468,7 @@ const WATER = 165, BLOCK = 18;
 const DEF = {
   qty: 1750, rate: 54, pct: 70, tank: 16000,
   each: 700, blocks: 2300, start: '10:00', truck: 8, loadMode: 'full',
+  fleet: [{n:7, m3:10}, {n:18, m3:12}],      // how many truck mixers carry how many m³
   fac: [
     {name:'Liebherr 1', pct:35, on:true},
     {name:'Liebherr 2', pct:50, on:true},
@@ -476,7 +484,7 @@ function load(){
   try{
     const raw = JSON.parse(localStorage.getItem('ncm-ice') || '{}');
     const s = JSON.parse(JSON.stringify(DEF));
-    for(const k of ['qty','rate','pct','tank','each','blocks','start','truck','loadMode'])
+    for(const k of ['qty','rate','pct','tank','each','blocks','start','truck','loadMode','fleet'])
       if(raw[k] !== undefined) s[k] = raw[k];
     if(Array.isArray(raw.fac))
       raw.fac.slice(0,5).forEach((f,i)=>{
@@ -580,8 +588,13 @@ function suggest(){
   return {set, t, first, R};
 }
 /* the trucks of this pour: full (12 m³) or loaded with what is typed */
-const FULL = 12;
-const truckM3 = () => S.loadMode === 'custom' && S.truck > 0 ? S.truck : FULL;
+/* a full truck = the average load of the fleet typed in the settings (12 m³ if none) */
+function fleetAvg(){
+  const f = (S.fleet || []).filter(r => +r.n > 0 && +r.m3 > 0);
+  const n = f.reduce((a,r) => a + +r.n, 0);
+  return n ? f.reduce((a,r) => a + r.n * r.m3, 0) / n : 12;
+}
+const truckM3 = () => S.loadMode === 'custom' && S.truck > 0 ? S.truck : fleetAvg();
 /* Whole trucks: share `total` among the plants in proportion to `w`, rounding
    down and handing the trucks left over to the largest remainders. */
 function shareWhole(w, total){
@@ -611,7 +624,7 @@ function drawSuggest(force){
   const pourTrucks = S.qty > 0 ? Math.ceil(S.qty / tm) : 0;
   const head =
     `<div class="head"><div class="seg">` +
-    `<button data-tm="full" class="${custom ? '' : 'on'}">Full trucks · ${FULL} m³</button>` +
+    `<button data-tm="full" class="${custom ? '' : 'on'}">Full trucks · avg ${fmt(fleetAvg(), 1)} m³</button>` +
     `<button data-tm="custom" class="${custom ? 'on' : ''}">Trucks carry</button></div>` +
     (custom ? `<input class="truckm" inputmode="decimal" value="${S.truck}"><span class="pct">m³</span>` : '') +
     `</div><div class="note">The pour: <b>${fmt(S.qty)} m³ = ${fmt(pourTrucks)} trucks</b> of ${fmt(tm, 1)} m³</div>`;
@@ -1391,6 +1404,30 @@ $('p2').addEventListener('focusout', e => {
 });
 
 /* ---- settings (the gear) ------------------------------------------------- */
+function drawFleet(){
+  const f = S.fleet || [];
+  $('fleetrows').innerHTML = f.map((r,i) =>
+    `<div class="drow"><input class="dp" inputmode="numeric" data-fl="${i}" data-k="n" value="${r.n}">` +
+    `<span class="pct">trucks ×</span><input class="dp" inputmode="decimal" data-fl="${i}" data-k="m3" value="${r.m3}">` +
+    `<span class="pct">m³</span><button class="sb q" data-fldel="${i}">✕</button></div>`).join('');
+  const n = f.reduce((a,r) => a + (+r.n || 0), 0);
+  $('fleetnum').textContent = n ? n + ' trucks · avg ' + fmt(fleetAvg(), 2) + ' m³' : 'none · a full truck = 12 m³';
+}
+$('fleetrows').addEventListener('input', e => {
+  const i = e.target.dataset.fl; if(i === undefined) return;
+  S.fleet[+i][e.target.dataset.k] = num(e.target.value);
+  save(); echo();
+  const n = S.fleet.reduce((a,r) => a + (+r.n || 0), 0);
+  $('fleetnum').textContent = n ? n + ' trucks · avg ' + fmt(fleetAvg(), 2) + ' m³' : 'none · a full truck = 12 m³';
+});
+$('fleetrows').addEventListener('click', e => {
+  const b = e.target.closest('[data-fldel]'); if(!b) return;
+  S.fleet.splice(+b.dataset.fldel, 1); save(); drawFleet(); echo();
+});
+$('fleetadd').addEventListener('click', () => {
+  (S.fleet = S.fleet || []).push({n:1, m3:12}); save(); drawFleet(); echo();
+  const box = $('fleetrows').querySelector('.drow:last-child input'); box.focus(); box.select();
+});
 function drawSettings(){
   const list = driverList();
   $('drvnum').textContent = list.length + ' drivers';
@@ -1400,6 +1437,7 @@ function drawSettings(){
     `placeholder="No number" value="${esc(PH[n] || '')}">` +
     `<button class="sb q" data-del="${esc(n)}" title="Remove this driver">✕</button></div>`).join('');
   $('lateh').value = LATE_H;
+  drawFleet();
   if(!$('pwnote').textContent) phoneState(0);
   $('plantnames').innerHTML = S.fac.map((f,i) =>
     `<div class="drow"><span class="pct" style="width:56px">Plant ${i+1}</span>` +
