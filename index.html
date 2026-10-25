@@ -324,8 +324,6 @@ input.dt.bad{border-color:var(--red)}
             <span>Full tank</span><input id="tank1" inputmode="decimal"><span>kg</span>
             <i class="div"></i>
             <span>Each factory</span><input id="each1" inputmode="decimal"><span>kg/h</span>
-            <i class="div"></i>
-            <span>Start</span><input id="start" style="width:64px">
           </div>
         </div>
       </div>
@@ -345,7 +343,11 @@ input.dt.bad{border-color:var(--red)}
         </div>
 
         <div class="card hours">
-          <span class="cap">Hour by hour</span>
+          <div class="row" style="padding:0 0 8px">
+            <span class="cap" style="flex:1">Hour by hour</span>
+            <div class="lb" style="flex:none;font-size:13px;color:var(--muted)">Pour starts at</div>
+            <input id="start" inputmode="numeric" style="width:70px">
+          </div>
           <div class="tbox">
             <table>
               <thead><tr><th>Time</th><th>Ice stock (ton)</th><th>Quantity (m³)</th></tr></thead>
