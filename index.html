@@ -427,7 +427,8 @@ input.dt.bad{border-color:var(--red)}
         </div>
         <div class="card sec">
           <div class="sech"><span class="cap">Truck mixers</span><span class="tot" id="fleetnum"></span></div>
-          <div class="hint">How many trucks carry how much. "Full trucks" in the suggestion uses their average.</div>
+          <div class="hint">How many trucks carry how much. "Full trucks" in the suggestion uses their average.
+            A change here reaches every device.</div>
           <div id="fleetrows"></div>
           <button class="sb q" id="fleetadd" style="margin:6px 0 4px">+ Add a load</button>
         </div>
@@ -1044,12 +1045,16 @@ async function share(){
     const lines = csvRows(await res.text()).slice(1);
     readRows += lines.length;
     const newest = new Map();
-    let drivers = false, phones = false;
+    let drivers = false, phones = false, fleetIn = false;
     lines.forEach(r => {
       let e = null;
       try{ e = JSON.parse(r[0]); }catch(x){}
       if(!e || !e.id || !e.ts) return;
       outbox = outbox.filter(o => !(o.id === e.id && o.ts === e.ts));   // it arrived
+      if(e.fl){                                                 // the truck fleet
+        if(Array.isArray(e.fleet) && e.ts > fleetTs){ S.fleet = e.fleet; fleetTs = e.ts; fleetIn = true; }
+        return;
+      }
       if(e.ph){                                                 // a locked phone number
         const mine = PHX[e.name];
         if(e.name && e.c && (!mine || e.ts > mine.ts)){ PHX[e.name] = {ts:e.ts, c:e.c}; phones = true; }
@@ -1067,6 +1072,12 @@ async function share(){
       if(!had || e.ts > had.ts) newest.set(e.id, e);
     });
     if(phones){ savePhx(); await openPhones(); }
+    if(fleetIn){
+      save();
+      try{ localStorage.setItem('ncm-ice-fleet-ts', fleetTs); }catch(x){}
+      if(!$('fleetrows').contains(document.activeElement)) drawFleet();
+      echo();
+    }
     if(drivers) saveDrivers();
     if(drivers || phones){
       drawDrivers();
@@ -1404,6 +1415,18 @@ $('p2').addEventListener('focusout', e => {
 });
 
 /* ---- settings (the gear) ------------------------------------------------- */
+/* when the fleet was last changed (on any device); the newest change wins */
+let fleetTs = 0, fleetTimer = null;
+try{ fleetTs = +localStorage.getItem('ncm-ice-fleet-ts') || 0; }catch(e){}
+function sendFleet(){
+  clearTimeout(fleetTimer);
+  fleetTimer = setTimeout(() => {          // one line for a burst of typing
+    fleetTs = Date.now();
+    try{ localStorage.setItem('ncm-ice-fleet-ts', fleetTs); }catch(e){}
+    outbox.push({id:'fleet', fl:1, fleet:S.fleet, ts:fleetTs});
+    saveTrucks(); share();
+  }, 1200);
+}
 function drawFleet(){
   const f = S.fleet || [];
   $('fleetrows').innerHTML = f.map((r,i) =>
@@ -1416,16 +1439,16 @@ function drawFleet(){
 $('fleetrows').addEventListener('input', e => {
   const i = e.target.dataset.fl; if(i === undefined) return;
   S.fleet[+i][e.target.dataset.k] = num(e.target.value);
-  save(); echo();
+  save(); echo(); sendFleet();
   const n = S.fleet.reduce((a,r) => a + (+r.n || 0), 0);
   $('fleetnum').textContent = n ? n + ' trucks · avg ' + fmt(fleetAvg(), 2) + ' m³' : 'none · a full truck = 12 m³';
 });
 $('fleetrows').addEventListener('click', e => {
   const b = e.target.closest('[data-fldel]'); if(!b) return;
-  S.fleet.splice(+b.dataset.fldel, 1); save(); drawFleet(); echo();
+  S.fleet.splice(+b.dataset.fldel, 1); save(); drawFleet(); echo(); sendFleet();
 });
 $('fleetadd').addEventListener('click', () => {
-  (S.fleet = S.fleet || []).push({n:1, m3:12}); save(); drawFleet(); echo();
+  (S.fleet = S.fleet || []).push({n:1, m3:12}); save(); drawFleet(); echo(); sendFleet();
   const box = $('fleetrows').querySelector('.drow:last-child input'); box.focus(); box.select();
 });
 function drawSettings(){
